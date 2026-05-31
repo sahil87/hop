@@ -25,7 +25,7 @@
 | `hop config where` | (none) | Print the resolved config path on stdout. Renamed from v0.0.1's `config path`. | 0 resolved, 1 unresolvable |
 | `hop config print` | (none) | Print the resolved `hop.yaml` contents to stdout (raw bytes, comment-preserving). | 0 success, 1 unresolvable / read error |
 | `hop config scan <dir>` | exactly 1 (directory) | Walk `<dir>` (default `--depth 3`), discover git repos via stat + `git remote`, and emit a merged `hop.yaml` to stdout (default) or merge in place via `--write` (atomic, comment-preserving). Auto-derives groups: convention-match repos go to `default`; non-convention repos land in invented map-shaped groups keyed off the parent dir basename. | 0 success (incl. zero repos found); 1 missing `hop.yaml` / git missing / write failure; 2 usage error (missing arg, dir validation, `--depth < 1`) |
-| `hop update` | (none) | Self-update the `hop` binary via Homebrew. No-op (with hint) when the binary was not installed via brew. | 0 success, 1 brew failure |
+| `hop update` | (none); `--skip-brew-update` (bool, default false) | Self-update the `hop` binary via Homebrew. No-op (with hint) when the binary was not installed via brew. `--skip-brew-update` skips ONLY the internal `brew update` tap-metadata refresh; the version check and `brew upgrade` still run. | 0 success, 1 brew failure |
 | `hop -h \| --help \| help` | (none) | Print help text on stdout | 0 |
 | `hop -v \| --version` | (none) | Print version string on stdout | 0 |
 
@@ -351,6 +351,8 @@ The brew formula is referenced as `sahil87/tap/hop` (fully qualified) to disambi
 
 Version comparison MUST normalize the leading `v` — the binary reports versions with the `v` prefix (e.g. `v0.0.3` from the build's `git describe` ldflag), while `brew info --json=v2` reports the bare form (`0.0.3`). The comparison uses the bare form on both sides.
 
+The `--skip-brew-update` boolean flag (default false) skips ONLY the internal `brew update --quiet` tap-metadata refresh. The brew-install detection, the `brew info` version check, the "already up to date" short-circuit, and `brew upgrade` MUST all run unchanged. The flag is a **cross-toolkit contract** — the name `--skip-brew-update` and its narrow "skip only the tap-metadata refresh" semantics are shared with sibling tools and MUST NOT be renamed or broadened.
+
 > **GIVEN** the binary was installed via Homebrew and the tap formula is at the same version
 > **WHEN** I run `hop update`
 > **THEN** stdout shows `Current version: v<X>`, then `Checking for updates...`, then `Already up to date (v<X>).`
@@ -361,6 +363,13 @@ Version comparison MUST normalize the leading `v` — the binary reports version
 > **WHEN** I run `hop update`
 > **THEN** stdout shows `Updating v<old> → v<new>...` followed by `brew upgrade` output
 > **AND** on success, stdout ends with `Updated to v<new>.`
+> **AND** exit code is 0
+
+> **GIVEN** the binary was installed via Homebrew and the tap has a newer version
+> **WHEN** I run `hop update --skip-brew-update`
+> **THEN** `brew update` is NOT invoked
+> **AND** the `brew info` version check still runs
+> **AND** `brew upgrade` still runs and stdout ends with `Updated to v<new>.`
 > **AND** exit code is 0
 
 > **GIVEN** the binary was NOT installed via Homebrew (e.g. `just local-install`, manual `go install`, or downloaded tarball)

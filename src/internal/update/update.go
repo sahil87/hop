@@ -31,6 +31,21 @@ const (
 	brewUpgradeTimeout = 120 * time.Second
 )
 
+// Package-level seams over internal/proc so tests can assert which brew
+// subcommands are invoked without spawning a real brew. The seam pattern
+// mirrors internal/fzf/fzf.go::runInteractive and cmd/hop/wt_list.go::
+// listWorktrees — production binds straight to proc, so Constitution
+// Principle I (no direct os/exec outside internal/proc) is preserved.
+var (
+	runProc       = proc.Run
+	runForeground = proc.RunForeground
+)
+
+// isBrewInstalled is a package-level seam (mirroring runProc/runForeground)
+// so tests can force the brew-installed code path without living under a
+// /Cellar/ directory. Production binds it to defaultIsBrewInstalled.
+var isBrewInstalled = defaultIsBrewInstalled
+
 // Run self-updates the hop binary via Homebrew.
 //
 // currentVersion is the binary's reported version (e.g. "v0.0.3"). The leading
@@ -46,11 +61,18 @@ const (
 // are small and may be redirected for tests or embedding. Callers in production
 // should pass os.Stdout / os.Stderr to keep the two consistent.
 //
+// skipBrewUpdate, when true, skips ONLY the internal `brew update --quiet`
+// tap-metadata refresh (step 2). Everything else runs unchanged: the
+// `brew info` version check, the "already up to date" short-circuit, and
+// `brew upgrade`. Default (false) preserves the original behavior. The flag
+// is a cross-toolkit contract — its name and semantics are shared with sibling
+// tools, so do not rename or broaden its scope.
+//
 // Returns nil on success or no-op (not a brew install, already up to date).
 // Returns proc.ErrNotFound when brew is missing on PATH (callers should map
 // this to errSilent so cobra does not double-print). Returns a wrapped error
 // for other brew failures.
-func Run(currentVersion string, out, errOut io.Writer) error {
+func Run(currentVersion string, skipBrewUpdate bool, out, errOut io.Writer) error {
 	if !isBrewInstalled() {
 		fmt.Fprintf(out, "hop %s was not installed via Homebrew.\n", currentVersion)
 		fmt.Fprintln(out, "Update manually, or reinstall with: brew install "+brewFormula)
@@ -60,15 +82,17 @@ func Run(currentVersion string, out, errOut io.Writer) error {
 	fmt.Fprintf(out, "Current version: %s\n", currentVersion)
 	fmt.Fprintln(out, "Checking for updates...")
 
-	ctx, cancel := context.WithTimeout(context.Background(), brewUpdateTimeout)
-	_, err := proc.Run(ctx, "brew", "update", "--quiet")
-	cancel()
-	if err != nil {
-		if errors.Is(err, proc.ErrNotFound) {
-			fmt.Fprintln(errOut, "hop update: brew not found on PATH.")
-			return err
+	if !skipBrewUpdate {
+		ctx, cancel := context.WithTimeout(context.Background(), brewUpdateTimeout)
+		_, err := runProc(ctx, "brew", "update", "--quiet")
+		cancel()
+		if err != nil {
+			if errors.Is(err, proc.ErrNotFound) {
+				fmt.Fprintln(errOut, "hop update: brew not found on PATH.")
+				return err
+			}
+			return fmt.Errorf("brew update failed: %w", err)
 		}
-		return fmt.Errorf("brew update failed: %w", err)
 	}
 
 	latest, err := brewLatestVersion()
@@ -89,7 +113,7 @@ func Run(currentVersion string, out, errOut io.Writer) error {
 
 	upCtx, upCancel := context.WithTimeout(context.Background(), brewUpgradeTimeout)
 	defer upCancel()
-	code, err := proc.RunForeground(upCtx, "", "brew", "upgrade", brewFormula)
+	code, err := runForeground(upCtx, "", "brew", "upgrade", brewFormula)
 	if err != nil {
 		if errors.Is(err, proc.ErrNotFound) {
 			fmt.Fprintln(errOut, "hop update: brew not found on PATH.")
@@ -111,7 +135,7 @@ func Run(currentVersion string, out, errOut io.Writer) error {
 func brewLatestVersion() (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), brewInfoTimeout)
 	defer cancel()
-	out, err := proc.Run(ctx, "brew", "info", "--json=v2", brewFormula)
+	out, err := runProc(ctx, "brew", "info", "--json=v2", brewFormula)
 	if err != nil {
 		return "", err
 	}
@@ -131,11 +155,11 @@ func brewLatestVersion() (string, error) {
 	return info.Formulae[0].Versions.Stable, nil
 }
 
-// isBrewInstalled checks whether the running binary lives under a Cellar
+// defaultIsBrewInstalled checks whether the running binary lives under a Cellar
 // directory, which is the canonical signature of a Homebrew install. The
 // symlink at /opt/homebrew/bin/hop (or /usr/local/bin/hop on Intel) resolves
 // through to .../Cellar/hop/<version>/bin/hop.
-func isBrewInstalled() bool {
+func defaultIsBrewInstalled() bool {
 	self, err := os.Executable()
 	if err != nil {
 		return false

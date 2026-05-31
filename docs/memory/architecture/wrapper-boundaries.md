@@ -43,14 +43,18 @@ Why a dedicated package: the invocation is non-trivial (multiple flags, stdin pi
 
 ## `internal/update` — Homebrew self-update
 
-`Run(currentVersion string, out, errOut io.Writer) error`:
+`Run(currentVersion string, skipBrewUpdate bool, out, errOut io.Writer) error`:
 
 - Detects whether the binary was installed via Homebrew by walking `os.Executable()` through `filepath.EvalSymlinks` and checking for `/Cellar/` in the resolved path. Non-brew installs print a manual-update hint to `out` and return nil (exit 0).
-- Refreshes the brew index (`brew update --quiet`, 30s timeout via `proc.Run`).
+- Refreshes the brew index (`brew update --quiet`, 30s timeout via `proc.Run`). **Gated by `skipBrewUpdate`**: when true, this single step is skipped and nothing else changes.
 - Queries the latest tap formula version (`brew info --json=v2 sahil87/tap/hop`, parses `formulae[0].versions.stable`).
 - Compares against `currentVersion` after stripping any leading `v` (binary reports `v0.0.3`, brew reports `0.0.3`).
 - On mismatch, runs `brew upgrade sahil87/tap/hop` with a 120s timeout via `proc.RunForeground` so brew's progress streams through.
 - All `brew` invocations route through `internal/proc` (Constitution Principle I).
+
+`--skip-brew-update` flag — the cobra factory binds a `BoolVar` (default false) wired into the `skipBrewUpdate` parameter. It skips ONLY the tap-metadata refresh (`brew update --quiet`); the version check, "already up to date" short-circuit, and `brew upgrade` are unaffected. It is a **cross-toolkit contract** shared with sibling tools — the name `--skip-brew-update` and its narrow semantics must stay identical across them, so it is deliberately NOT generalized into a broader "offline" or "no-network" flag.
+
+Test seams — `internal/update` exposes three package-level `var` seams initialised to `proc.Run` (`runProc`), `proc.RunForeground` (`runForeground`), and `defaultIsBrewInstalled` (`isBrewInstalled`). Production binds straight to those functions, so Constitution Principle I holds (no direct `os/exec` outside `internal/proc`); tests swap them to force the brew-installed path and assert exactly which `brew` subcommands fire (e.g. that `--skip-brew-update` suppresses `brew update` while `brew info`/`brew upgrade` still run). The pattern mirrors `internal/fzf/fzf.go::runInteractive` and `cmd/hop/wt_list.go::listWorktrees`.
 
 Stream routing — `out` and `errOut` receive **only the wrapper messages this package emits** ("Current version:", "Already up to date.", error hints). Subprocess stdout/stderr from `brew update`, `brew info`, and `brew upgrade` is intentionally NOT routed through these writers — `internal/proc` owns subprocess streams (`proc.Run` pipes child stderr to the parent's `os.Stderr`; `proc.RunForeground` inherits all three streams). The split is deliberate: subprocess streams are tty-aware (brew prints colored progress); wrapper messages are small and may be redirected for tests or embedding. Production callers pass `os.Stdout` / `os.Stderr` to keep both consistent.
 
