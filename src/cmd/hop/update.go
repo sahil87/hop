@@ -10,12 +10,13 @@ import (
 )
 
 func newUpdateCmd() *cobra.Command {
-	return &cobra.Command{
+	var skipBrewUpdate bool
+	cmd := &cobra.Command{
 		Use:   "update",
 		Short: "self-update the hop binary via Homebrew",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			err := update.Run(version, cmd.OutOrStdout(), cmd.ErrOrStderr())
+			err := update.Run(version, skipBrewUpdate, cmd.OutOrStdout(), cmd.ErrOrStderr())
 			// internal/update writes its own "brew not found" hint to stderr
 			// before returning proc.ErrNotFound. Map it to errSilent so
 			// translateExit does not also print the underlying
@@ -26,4 +27,7 @@ func newUpdateCmd() *cobra.Command {
 			return err
 		},
 	}
+	cmd.Flags().BoolVar(&skipBrewUpdate, "skip-brew-update", false,
+		"skip the internal `brew update` tap-metadata refresh (the version check and upgrade still run)")
+	return cmd
 }

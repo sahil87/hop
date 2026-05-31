@@ -31,10 +31,32 @@ const (
 	brewUpgradeTimeout = 120 * time.Second
 )
 
+// Test seams. These unexported package-level indirections exist so tests can
+// observe which brew subcommands are invoked (and force the brew code path)
+// without refactoring internal/proc. In production they default to the real
+// internal/proc calls and isBrewInstalled, so behavior — including Constitution
+// Principle I's explicit-argument-slice convention — is identical. Tests swap
+// these out and restore them via t.Cleanup/defer.
+var (
+	brewRun = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		return proc.Run(ctx, name, args...)
+	}
+	brewRunForeground = func(ctx context.Context, dir, name string, args ...string) (int, error) {
+		return proc.RunForeground(ctx, dir, name, args...)
+	}
+	brewInstalledCheck = isBrewInstalled
+)
+
 // Run self-updates the hop binary via Homebrew.
 //
 // currentVersion is the binary's reported version (e.g. "v0.0.3"). The leading
 // "v" is stripped before comparison since `brew info` reports the bare form.
+//
+// skipBrewUpdate gates ONLY the internal `brew update --quiet` tap-metadata
+// refresh. When true, that refresh is skipped silently; the `brew info` version
+// check, the up-to-date short-circuit, and the `brew upgrade` are unaffected and
+// still run. When false (the default), behavior is byte-for-byte identical to
+// before this flag existed.
 //
 // out and errOut receive only the WRAPPER messages this package emits ("Current
 // version:", "Already up to date", error hints, etc.). Subprocess stdout/stderr
@@ -50,8 +72,8 @@ const (
 // Returns proc.ErrNotFound when brew is missing on PATH (callers should map
 // this to errSilent so cobra does not double-print). Returns a wrapped error
 // for other brew failures.
-func Run(currentVersion string, out, errOut io.Writer) error {
-	if !isBrewInstalled() {
+func Run(currentVersion string, skipBrewUpdate bool, out, errOut io.Writer) error {
+	if !brewInstalledCheck() {
 		fmt.Fprintf(out, "hop %s was not installed via Homebrew.\n", currentVersion)
 		fmt.Fprintln(out, "Update manually, or reinstall with: brew install "+brewFormula)
 		return nil
@@ -60,15 +82,17 @@ func Run(currentVersion string, out, errOut io.Writer) error {
 	fmt.Fprintf(out, "Current version: %s\n", currentVersion)
 	fmt.Fprintln(out, "Checking for updates...")
 
-	ctx, cancel := context.WithTimeout(context.Background(), brewUpdateTimeout)
-	_, err := proc.Run(ctx, "brew", "update", "--quiet")
-	cancel()
-	if err != nil {
-		if errors.Is(err, proc.ErrNotFound) {
-			fmt.Fprintln(errOut, "hop update: brew not found on PATH.")
-			return err
+	if !skipBrewUpdate {
+		ctx, cancel := context.WithTimeout(context.Background(), brewUpdateTimeout)
+		_, err := brewRun(ctx, "brew", "update", "--quiet")
+		cancel()
+		if err != nil {
+			if errors.Is(err, proc.ErrNotFound) {
+				fmt.Fprintln(errOut, "hop update: brew not found on PATH.")
+				return err
+			}
+			return fmt.Errorf("brew update failed: %w", err)
 		}
-		return fmt.Errorf("brew update failed: %w", err)
 	}
 
 	latest, err := brewLatestVersion()
@@ -89,7 +113,7 @@ func Run(currentVersion string, out, errOut io.Writer) error {
 
 	upCtx, upCancel := context.WithTimeout(context.Background(), brewUpgradeTimeout)
 	defer upCancel()
-	code, err := proc.RunForeground(upCtx, "", "brew", "upgrade", brewFormula)
+	code, err := brewRunForeground(upCtx, "", "brew", "upgrade", brewFormula)
 	if err != nil {
 		if errors.Is(err, proc.ErrNotFound) {
 			fmt.Fprintln(errOut, "hop update: brew not found on PATH.")
@@ -111,7 +135,7 @@ func Run(currentVersion string, out, errOut io.Writer) error {
 func brewLatestVersion() (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), brewInfoTimeout)
 	defer cancel()
-	out, err := proc.Run(ctx, "brew", "info", "--json=v2", brewFormula)
+	out, err := brewRun(ctx, "brew", "info", "--json=v2", brewFormula)
 	if err != nil {
 		return "", err
 	}
