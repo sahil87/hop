@@ -129,6 +129,7 @@ func newRootCmd() *cobra.Command {
 		newShellInitCmd(),
 		newConfigCmd(),
 		newUpdateCmd(),
+		newHelpDumpCmd(),
 	)
 
 	return cmd

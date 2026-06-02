@@ -1,0 +1,21 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-06-02T17:30:56Z"}
+{"args":"Add a build-time help-dump step that emits hop's CLI help tree as help/hop.json and PRs it into sahil87/shll.ai (backlog jr5f)","cmd":"fab-new","event":"command","ts":"2026-06-02T17:30:56Z"}
+{"delta":"+0.0","event":"confidence","score":0,"trigger":"calc-score","ts":"2026-06-02T17:32:35Z"}
+{"delta":"+0.0","event":"confidence","score":0,"trigger":"calc-score","ts":"2026-06-02T17:35:42Z"}
+{"delta":"+2.1","event":"confidence","score":2.1,"trigger":"calc-score","ts":"2026-06-02T17:35:48Z"}
+{"delta":"+0.0","event":"confidence","score":2.1,"trigger":"calc-score","ts":"2026-06-02T17:35:52Z"}
+{"cmd":"fab-clarify","event":"command","ts":"2026-06-02T17:37:50Z"}
+{"delta":"+2.9","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-06-02T18:40:01Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-06-02T18:40:11Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-06-02T18:40:32Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-06-02T18:40:40Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-06-02T18:40:47Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-06-02T18:41:10Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-06-02T18:41:14Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-06-02T18:45:07Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-06-02T18:45:07Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-06-02T18:51:04Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-06-02T18:54:38Z"}
+{"event":"review","result":"passed","ts":"2026-06-02T18:54:38Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-06-02T18:59:47Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-06-02T19:00:37Z"}
