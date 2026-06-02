@@ -245,3 +245,5 @@ Per the project Constitution's Test Integrity rule, the five test cases above SH
 | 15 | Certain | Subcommand-collision filter runs BEFORE the eager-expansion check. A repo whose `Name` collides with a cobra subcommand is filtered out of `names` first; the eager check operates only on non-collided candidates. A spec-level test pins this ordering. | Confirmed from intake #15. Matches the post-slash branch's behavior and the user-facing reality that cobra dispatches collide-names to the subcommand before the bare-form resolver. | S:95 R:75 A:75 D:70 |
 
 15 assumptions (15 certain, 0 confident, 0 tentative, 0 unresolved).
+
+<!-- Merged into plan.md ## Requirements on 2026-06-02 — safe to delete. -->

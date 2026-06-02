@@ -133,3 +133,5 @@ To make brew invocations observable without refactoring the subprocess conventio
 | 9 | Confident | `docs/memory/cli/subcommands.md` updated at hydrate to document the flag | CLI surface change; memory index lists cli/subcommands as surface doc. Confirmed from intake #8 | S:80 R:80 A:85 D:80 |
 
 9 assumptions (5 certain, 4 confident, 0 tentative, 0 unresolved).
+
+<!-- Merged into plan.md ## Requirements on 2026-06-02 — safe to delete. -->

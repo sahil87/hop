@@ -10,13 +10,12 @@ source_paths:
     - cmd
     - internal
 stage_directives:
-    apply: []
+    apply:
+        - Use GIVEN/WHEN/THEN for scenarios
+        - Mark ambiguities with [NEEDS CLARIFICATION]
     hydrate: []
     intake: []
     review: []
-    spec:
-        - Use GIVEN/WHEN/THEN for scenarios
-        - Mark ambiguities with [NEEDS CLARIFICATION]
     tasks: []
 true_impact_exclude:
     - fab/
