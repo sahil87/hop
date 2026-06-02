@@ -120,8 +120,9 @@ candidates are stale it SHALL print a friendly "nothing stale" message and exit
 
 #### R11: fzf-missing and cancel handling
 `hop config rm` SHALL reuse the existing `fzfMissingHint` + `errFzfMissing`
-handling. fzf user cancellation (Esc/Ctrl-C, exit 130) SHALL be a no-op exiting
-0 (mapped via the existing `errFzfCancelled` sentinel through `translateExit`).
+handling. fzf user cancellation (Esc/Ctrl-C) SHALL be a no-op (no file write)
+exiting with code 130 (mapped via the existing `errFzfCancelled` sentinel
+through `translateExit`).
 
 - **GIVEN** fzf is not on PATH
 - **WHEN** `hop config rm` runs

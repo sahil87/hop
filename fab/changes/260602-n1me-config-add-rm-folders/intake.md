@@ -59,7 +59,7 @@ Interactive removal of a registered entry via the fzf picker.
 - **`hop config rm --stale`**: pre-filters candidates to repos whose resolved `Path` does **not** exist on disk (`os.Stat`), then opens the picker over only those. Directly serves "remove items that no longer exist." If zero stale → friendly "nothing stale" message, exit 0, no picker.
 - Removal uses a **new `yamled.RemoveURL(path, group, url)`** primitive (see Impact) — comment-preserving, atomic temp+rename, handles both flat-list and `urls:`-map group shapes.
 - **Empty-group placeholder**: removing a group's last URL leaves the (now-empty) group node intact — `default: []` or `mygroup: { dir: ~/x, urls: [] }`. Per user decision; also the simpler implementation (delete one sequence item, stop).
-- fzf-missing → reuse `fzfMissingHint` + `errFzfMissing` handling (`resolve.go:24,34`). fzf cancel (Esc/Ctrl-C, exit 130) → no-op, exit 0.
+- fzf-missing → reuse `fzfMissingHint` + `errFzfMissing` handling (`resolve.go:24,34`). fzf cancel (Esc/Ctrl-C) → no-op (no file write), exit 130 (via the existing `errFzfCancelled` sentinel → `translateExit`).
 
 ```
 hop config rm            # picker over all registered repos → remove selected
