@@ -100,6 +100,13 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add help/hop.json
+          # Nothing to publish if help/hop.json is unchanged (e.g. a workflow
+          # re-run, or a release with no CLI-surface change). Exit cleanly so a
+          # re-run can't be blocked by `git commit` failing on an empty commit.
+          if git diff --cached --quiet; then
+            echo "help/hop.json unchanged — nothing to publish, skipping PR."
+            exit 0
+          fi
           git commit -m "hop help reference v${version}"
           git push origin "$branch"
           GH_TOKEN="$SHLLAI_TOKEN" gh pr create --repo sahil87/shll.ai \
