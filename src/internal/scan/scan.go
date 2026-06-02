@@ -195,6 +195,50 @@ func Walk(ctx context.Context, root string, opts Options) ([]Found, []Skip, erro
 	return found, skips, nil
 }
 
+// ClassifyOne classifies a single canonical directory (no recursion) and, for
+// a normal repo, inspects its remote. It is the single-dir entry point used by
+// `hop config add`, reusing the exact classification + remote-inspection logic
+// Walk applies per directory — without the DFS scaffolding.
+//
+// Returns exactly one of:
+//   - isRepo=true, Found populated  → a normal repo with a usable remote URL
+//   - isRepo=false, skipReason != "" → worktree / bare repo / no-remote candidate
+//     (skipReason is one of the Reason* constants)
+//   - isRepo=false, skipReason == "" → a plain directory (no .git, not bare):
+//     not a git repo at all
+//
+// err is non-nil only when `git` invocation fails fatally (e.g. git missing on
+// PATH — wraps proc.ErrNotFound for errors.Is matching). The caller is
+// responsible for canonicalizing dir (filepath.Clean → EvalSymlinks) and for
+// any UI; ClassifyOne stays UI-free like the rest of the package.
+//
+// opts.Depth is ignored (single dir, no walk); opts.GitRunner is honored,
+// defaulting to proc.RunCapture-bound when nil.
+func ClassifyOne(ctx context.Context, dir string, opts Options) (found Found, skipReason string, isRepo bool, err error) {
+	runner := opts.GitRunner
+	if runner == nil {
+		runner = defaultGitRunner
+	}
+
+	switch classifyDir(dir) {
+	case classWorktree:
+		return Found{}, ReasonWorktree, false, nil
+	case classBareRepo:
+		return Found{}, ReasonBareRepo, false, nil
+	case classNormalRepo:
+		f, reason, ierr := inspectRepo(ctx, runner, dir)
+		if ierr != nil {
+			return Found{}, "", false, ierr
+		}
+		if reason != "" {
+			return Found{}, reason, false, nil
+		}
+		return f, "", true, nil
+	default: // classPlainDir
+		return Found{}, "", false, nil
+	}
+}
+
 // dirClass enumerates the classifier outputs in spec § "Repo classification
 // rules". Order matters: classifyDir applies the rules first-match-wins.
 //

@@ -591,6 +591,8 @@ func TestConfigSubcommandsListedUnderConfigHelp(t *testing.T) {
 		"bootstrap a starter hop.yaml",                         // init
 		"print the resolved hop.yaml path",                     // where
 		"scan a directory for git repos and populate hop.yaml", // scan
+		"register a single on-disk repo into hop.yaml",         // add
+		"remove a registered repo from hop.yaml",               // rm
 		"print the resolved hop.yaml contents to stdout",       // print
 	}
 	for _, line := range wants {

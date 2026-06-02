@@ -99,6 +99,114 @@ func appendURLToTree(root *yaml.Node, group, url, path string) error {
 	}
 }
 
+// RemoveURL loads the YAML file at path as a yaml.Node tree, locates
+// repos.<group>, drops the scalar node whose value equals url from that group's
+// URL list (handling both flat-list and map-with-urls shapes), and writes the
+// result back atomically. The mirror of AppendURL.
+//
+// Removing a group's last URL leaves the now-empty group node intact (an empty
+// sequence) — the group key is never deleted, so it stays a valid clone target
+// (Assumption 5).
+//
+// Forgiving not-found semantics (Assumption 10): when the group is absent the
+// returned error wraps ErrGroupNotFound; when the group exists but does not
+// contain url the returned error wraps ErrURLNotFound. In both cases the file
+// is left byte-for-byte unchanged. Callers detect these via errors.Is and
+// surface a message + exit 0.
+//
+// Comments in unmodified portions of the file are preserved. Indentation is
+// normalized to yaml.v3's defaults on round-trip — comment preservation is the
+// contract, byte-perfect formatting is not.
+func RemoveURL(path, group, url string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("yamled: read %s: %w", path, err)
+	}
+
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return fmt.Errorf("yamled: parse %s: %w", path, err)
+	}
+
+	if err := removeURLFromTree(&root, group, url, path); err != nil {
+		return err
+	}
+
+	out, err := yaml.Marshal(&root)
+	if err != nil {
+		return fmt.Errorf("yamled: marshal: %w", err)
+	}
+
+	return atomicWrite(path, out)
+}
+
+// removeURLFromTree mutates the parsed tree in place: locate repos.<group>,
+// drop the scalar node matching url. Returns a wrapped ErrGroupNotFound /
+// ErrURLNotFound sentinel without mutating the tree when nothing matches.
+func removeURLFromTree(root *yaml.Node, group, url, path string) error {
+	if len(root.Content) == 0 {
+		return fmt.Errorf("yamled: group '%s' not found in %s: %w", group, path, ErrGroupNotFound)
+	}
+	top := root.Content[0]
+	if top.Kind != yaml.MappingNode {
+		return fmt.Errorf("yamled: parse %s: top-level is not a mapping", path)
+	}
+
+	reposNode := mappingValue(top, "repos")
+	if reposNode == nil || reposNode.Kind != yaml.MappingNode {
+		return fmt.Errorf("yamled: group '%s' not found in %s: %w", group, path, ErrGroupNotFound)
+	}
+
+	groupNode := mappingValue(reposNode, group)
+	if groupNode == nil {
+		return fmt.Errorf("yamled: group '%s' not found in %s: %w", group, path, ErrGroupNotFound)
+	}
+
+	urlsNode := urlsSequenceOf(groupNode)
+	if urlsNode == nil {
+		// Map-shaped group with no (or non-list) urls field, or an unexpected
+		// shape — the URL can't be present, so this is a forgiving not-found.
+		return fmt.Errorf("yamled: url '%s' not found in group '%s' in %s: %w", url, group, path, ErrURLNotFound)
+	}
+
+	idx := indexOfScalar(urlsNode, url)
+	if idx < 0 {
+		return fmt.Errorf("yamled: url '%s' not found in group '%s' in %s: %w", url, group, path, ErrURLNotFound)
+	}
+
+	// Drop the matching scalar; the empty sequence is left in place (the group
+	// node itself is never deleted — Assumption 5).
+	urlsNode.Content = append(urlsNode.Content[:idx], urlsNode.Content[idx+1:]...)
+	return nil
+}
+
+// urlsSequenceOf returns the sequence node holding a group's URLs for both the
+// flat-list shape (the group node IS the sequence) and the map shape (the
+// group's `urls:` value). Returns nil when no URL sequence can be located.
+func urlsSequenceOf(groupNode *yaml.Node) *yaml.Node {
+	switch groupNode.Kind {
+	case yaml.SequenceNode:
+		return groupNode
+	case yaml.MappingNode:
+		urlsNode := mappingValue(groupNode, "urls")
+		if urlsNode != nil && urlsNode.Kind == yaml.SequenceNode {
+			return urlsNode
+		}
+	}
+	return nil
+}
+
+// indexOfScalar returns the index of the first scalar child of seq whose value
+// equals want, or -1 when absent.
+func indexOfScalar(seq *yaml.Node, want string) int {
+	for i, c := range seq.Content {
+		if c.Kind == yaml.ScalarNode && c.Value == want {
+			return i
+		}
+	}
+	return -1
+}
+
 // mappingValue returns the value node for key in a mapping node, or nil if the
 // key is absent or the node is not a mapping. Mapping nodes store keys and
 // values interleaved in Content (key, value, key, value, ...).
@@ -168,9 +276,14 @@ func atomicWrite(path string, data []byte) error {
 	return nil
 }
 
-// ErrGroupNotFound is wrapped by AppendURL when the named group is absent.
-// Callers can detect this case with errors.Is(err, ErrGroupNotFound).
+// ErrGroupNotFound is wrapped by AppendURL and RemoveURL when the named group
+// is absent. Callers can detect this case with errors.Is(err, ErrGroupNotFound).
 var ErrGroupNotFound = errors.New("yamled: group not found")
+
+// ErrURLNotFound is wrapped by RemoveURL when the named group exists but does
+// not contain the target URL. Callers can detect this case with
+// errors.Is(err, ErrURLNotFound) and treat it as a forgiving no-op.
+var ErrURLNotFound = errors.New("yamled: url not found")
 
 // ScanPlan describes a structured set of additions for MergeScan / RenderScan.
 // The CLI layer assembles this from a scan.Walk result after running the

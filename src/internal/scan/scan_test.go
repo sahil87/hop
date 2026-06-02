@@ -495,3 +495,97 @@ func equalStrings(a, b []string) bool {
 	}
 	return true
 }
+
+// --- ClassifyOne tests ----------------------------------------------------
+
+func TestClassifyOneNormalRepoReturnsFound(t *testing.T) {
+	repoDir := canon(t, mkRepoDir(t))
+	runner := newFakeRunner(map[string]fakeResp{
+		keyRemote(repoDir):           remoteResp("origin"),
+		keyGetURL(repoDir, "origin"): urlResp("git@github.com:sahil87/hop.git"),
+	})
+
+	found, reason, isRepo, err := ClassifyOne(context.Background(), repoDir, Options{GitRunner: runner.Run})
+	if err != nil {
+		t.Fatalf("ClassifyOne: %v", err)
+	}
+	if !isRepo {
+		t.Fatalf("expected isRepo=true, got reason=%q", reason)
+	}
+	if found.URL != "git@github.com:sahil87/hop.git" {
+		t.Errorf("URL = %q", found.URL)
+	}
+	if found.Path != repoDir {
+		t.Errorf("Path = %q, want %q", found.Path, repoDir)
+	}
+}
+
+func TestClassifyOneWorktreeSkips(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "wt")
+	makeWorktree(t, dir)
+	_, reason, isRepo, err := ClassifyOne(context.Background(), canon(t, dir), Options{GitRunner: newFakeRunner(nil).Run})
+	if err != nil {
+		t.Fatalf("ClassifyOne: %v", err)
+	}
+	if isRepo || reason != ReasonWorktree {
+		t.Errorf("expected worktree skip, got isRepo=%v reason=%q", isRepo, reason)
+	}
+}
+
+func TestClassifyOneBareRepoSkips(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "bare")
+	makeBare(t, dir)
+	_, reason, isRepo, err := ClassifyOne(context.Background(), canon(t, dir), Options{GitRunner: newFakeRunner(nil).Run})
+	if err != nil {
+		t.Fatalf("ClassifyOne: %v", err)
+	}
+	if isRepo || reason != ReasonBareRepo {
+		t.Errorf("expected bare-repo skip, got isRepo=%v reason=%q", isRepo, reason)
+	}
+}
+
+func TestClassifyOnePlainDirNotARepo(t *testing.T) {
+	dir := t.TempDir() // empty plain dir, no .git
+	_, reason, isRepo, err := ClassifyOne(context.Background(), canon(t, dir), Options{GitRunner: newFakeRunner(nil).Run})
+	if err != nil {
+		t.Fatalf("ClassifyOne: %v", err)
+	}
+	// Plain dir: not a repo, no skip reason.
+	if isRepo || reason != "" {
+		t.Errorf("expected plain-dir (isRepo=false, reason=\"\"), got isRepo=%v reason=%q", isRepo, reason)
+	}
+}
+
+func TestClassifyOneNoRemoteSkips(t *testing.T) {
+	repoDir := canon(t, mkRepoDir(t))
+	runner := newFakeRunner(map[string]fakeResp{
+		keyRemote(repoDir): {out: []byte("\n")}, // no remotes listed
+	})
+	_, reason, isRepo, err := ClassifyOne(context.Background(), repoDir, Options{GitRunner: runner.Run})
+	if err != nil {
+		t.Fatalf("ClassifyOne: %v", err)
+	}
+	if isRepo || reason != ReasonNoRemote {
+		t.Errorf("expected no-remote skip, got isRepo=%v reason=%q", isRepo, reason)
+	}
+}
+
+func TestClassifyOneGitMissingErrors(t *testing.T) {
+	repoDir := canon(t, mkRepoDir(t))
+	runner := func(ctx context.Context, dir string, args ...string) ([]byte, error) {
+		return nil, proc.ErrNotFound
+	}
+	_, _, _, err := ClassifyOne(context.Background(), repoDir, Options{GitRunner: runner})
+	if !errors.Is(err, proc.ErrNotFound) {
+		t.Fatalf("expected wrapped ErrNotFound, got %v", err)
+	}
+}
+
+// mkRepoDir creates a fresh temp dir containing a `.git` directory (normal-repo
+// classification) and returns its (pre-canonical) path.
+func mkRepoDir(t *testing.T) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "repo")
+	makeRepo(t, dir)
+	return dir
+}

@@ -51,7 +51,7 @@ func runConfigScan(cmd *cobra.Command, userArg string, depth int, write bool) er
 	}
 
 	// 2. Validate <dir>: filepath.Clean → EvalSymlinks → os.Stat (directory).
-	canonicalDir, ok := validateScanDir(userArg, stderr)
+	canonicalDir, ok := validateConfigDir(userArg, scanCmdName, stderr)
 	if !ok {
 		return &errExitCode{code: 2}
 	}
@@ -123,20 +123,21 @@ var gitRunner scan.GitRunner = func(ctx context.Context, dir string, args ...str
 	return proc.RunCapture(ctx, dir, "git", args...)
 }
 
-// validateScanDir applies the order from spec § "Argument validation":
-// filepath.Clean → filepath.EvalSymlinks → os.Stat (must be directory). On
-// any failure, emits the not-a-directory message (with userArg verbatim) and
-// returns ok=false so the caller can exit 2.
-func validateScanDir(userArg string, stderr io.Writer) (canonical string, ok bool) {
+// validateConfigDir applies the directory-argument validation order shared by
+// `config scan` and `config add` (spec § "Argument validation"):
+// filepath.Clean → filepath.EvalSymlinks → os.Stat (must be directory). On any
+// failure, emits the not-a-directory message (with userArg verbatim, prefixed
+// by the caller's cmdName) and returns ok=false so the caller can exit 2.
+func validateConfigDir(userArg, cmdName string, stderr io.Writer) (canonical string, ok bool) {
 	cleaned := filepath.Clean(userArg)
 	resolved, err := filepath.EvalSymlinks(cleaned)
 	if err != nil {
-		fmt.Fprintf(stderr, "%s: '%s' is not a directory.\n", scanCmdName, userArg)
+		fmt.Fprintf(stderr, "%s: '%s' is not a directory.\n", cmdName, userArg)
 		return "", false
 	}
 	info, err := os.Stat(resolved)
 	if err != nil || !info.IsDir() {
-		fmt.Fprintf(stderr, "%s: '%s' is not a directory.\n", scanCmdName, userArg)
+		fmt.Fprintf(stderr, "%s: '%s' is not a directory.\n", cmdName, userArg)
 		return "", false
 	}
 	return resolved, true

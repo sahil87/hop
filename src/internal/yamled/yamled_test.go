@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/sahil87/hop/internal/config"
 )
 
 func TestAppendURLFlatList(t *testing.T) {
@@ -502,6 +504,237 @@ func TestMergeScanLeavesOriginalOnTempCreateFail(t *testing.T) {
 	got, _ := os.ReadFile(path)
 	if string(got) != original {
 		t.Errorf("file modified despite error; got:\n%s", got)
+	}
+}
+
+// --- RemoveURL tests ------------------------------------------------------
+
+func TestRemoveURLFlatList(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "hop.yaml")
+	original := `# top comment
+config:
+  code_root: ~/code
+
+repos:
+  default:
+    - git@github.com:sahil87/hop.git    # the locator tool
+    - git@github.com:sahil87/wt.git
+`
+	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	if err := RemoveURL(path, "default", "git@github.com:sahil87/wt.git"); err != nil {
+		t.Fatalf("RemoveURL: %v", err)
+	}
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	gotStr := string(got)
+
+	if strings.Contains(gotStr, "wt.git") {
+		t.Errorf("removed URL still present; got:\n%s", gotStr)
+	}
+	if !strings.Contains(gotStr, "hop.git") {
+		t.Errorf("surviving URL missing; got:\n%s", gotStr)
+	}
+	// Comment on the surviving line preserved.
+	if !strings.Contains(gotStr, "# the locator tool") {
+		t.Errorf("inline comment lost; got:\n%s", gotStr)
+	}
+	if !strings.Contains(gotStr, "# top comment") {
+		t.Errorf("top comment lost; got:\n%s", gotStr)
+	}
+}
+
+func TestRemoveURLMapGroup(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "hop.yaml")
+	original := `repos:
+  vendor:
+    dir: ~/vendor
+    urls:
+      - git@github.com:vendor/tool-a.git    # first vendor tool
+      - git@github.com:vendor/tool-b.git
+`
+	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	if err := RemoveURL(path, "vendor", "git@github.com:vendor/tool-a.git"); err != nil {
+		t.Fatalf("RemoveURL: %v", err)
+	}
+
+	got, _ := os.ReadFile(path)
+	gotStr := string(got)
+	if strings.Contains(gotStr, "tool-a.git") {
+		t.Errorf("removed URL still present; got:\n%s", gotStr)
+	}
+	if !strings.Contains(gotStr, "tool-b.git") {
+		t.Errorf("surviving URL missing; got:\n%s", gotStr)
+	}
+	// dir field preserved.
+	if !strings.Contains(gotStr, "dir: ~/vendor") {
+		t.Errorf("dir field lost; got:\n%s", gotStr)
+	}
+}
+
+func TestRemoveURLLastLeavesEmptyFlatGroup(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "hop.yaml")
+	original := `repos:
+  default:
+    - git@github.com:sahil87/hop.git
+  vendor:
+    - git@github.com:vendor/tool.git
+`
+	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	if err := RemoveURL(path, "default", "git@github.com:sahil87/hop.git"); err != nil {
+		t.Fatalf("RemoveURL: %v", err)
+	}
+
+	got, _ := os.ReadFile(path)
+	gotStr := string(got)
+	if strings.Contains(gotStr, "hop.git") {
+		t.Errorf("removed URL still present; got:\n%s", gotStr)
+	}
+	// The default group key MUST remain (empty-group placeholder, Assumption 5).
+	if !strings.Contains(gotStr, "default:") {
+		t.Errorf("empty group key deleted; want placeholder; got:\n%s", gotStr)
+	}
+	// vendor untouched.
+	if !strings.Contains(gotStr, "vendor:") || !strings.Contains(gotStr, "tool.git") {
+		t.Errorf("vendor group lost; got:\n%s", gotStr)
+	}
+
+	// The placeholder must still parse as a valid empty group.
+	if _, err := config.Load(path); err != nil {
+		t.Errorf("empty-group placeholder no longer parses: %v\n%s", err, gotStr)
+	}
+}
+
+func TestRemoveURLLastLeavesEmptyMapGroup(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "hop.yaml")
+	original := `repos:
+  vendor:
+    dir: ~/vendor
+    urls:
+      - git@github.com:vendor/tool.git
+`
+	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	if err := RemoveURL(path, "vendor", "git@github.com:vendor/tool.git"); err != nil {
+		t.Fatalf("RemoveURL: %v", err)
+	}
+
+	got, _ := os.ReadFile(path)
+	gotStr := string(got)
+	if strings.Contains(gotStr, "tool.git") {
+		t.Errorf("removed URL still present; got:\n%s", gotStr)
+	}
+	// Group key + dir preserved (empty urls placeholder).
+	if !strings.Contains(gotStr, "vendor:") {
+		t.Errorf("empty group key deleted; want placeholder; got:\n%s", gotStr)
+	}
+	if !strings.Contains(gotStr, "dir: ~/vendor") {
+		t.Errorf("dir field lost on empty placeholder; got:\n%s", gotStr)
+	}
+	if _, err := config.Load(path); err != nil {
+		t.Errorf("empty-group placeholder no longer parses: %v\n%s", err, gotStr)
+	}
+}
+
+func TestRemoveURLPreservesOtherComments(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "hop.yaml")
+	original := `# top-level comment
+config:
+  code_root: ~/code
+
+repos:
+  default:
+    - git@github.com:foo/a.git    # keep me
+    - git@github.com:foo/b.git    # drop the entry below, not me
+`
+	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	if err := RemoveURL(path, "default", "git@github.com:foo/b.git"); err != nil {
+		t.Fatalf("RemoveURL: %v", err)
+	}
+
+	got, _ := os.ReadFile(path)
+	gotStr := string(got)
+	if !strings.Contains(gotStr, "# top-level comment") {
+		t.Errorf("top comment lost; got:\n%s", gotStr)
+	}
+	if !strings.Contains(gotStr, "# keep me") {
+		t.Errorf("surviving inline comment lost; got:\n%s", gotStr)
+	}
+	if !strings.Contains(gotStr, "a.git") {
+		t.Errorf("surviving URL missing; got:\n%s", gotStr)
+	}
+	if strings.Contains(gotStr, "b.git") {
+		t.Errorf("removed URL still present; got:\n%s", gotStr)
+	}
+}
+
+func TestRemoveURLNotFoundIsForgiving(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "hop.yaml")
+	original := `repos:
+  default:
+    - git@github.com:sahil87/hop.git
+`
+	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	err := RemoveURL(path, "default", "git@github.com:nobody/missing.git")
+	if err == nil {
+		t.Fatal("expected ErrURLNotFound, got nil")
+	}
+	if !errors.Is(err, ErrURLNotFound) {
+		t.Errorf("expected errors.Is(err, ErrURLNotFound), got %v", err)
+	}
+	// File unchanged.
+	got, _ := os.ReadFile(path)
+	if string(got) != original {
+		t.Errorf("file modified despite not-found; got:\n%s", got)
+	}
+}
+
+func TestRemoveURLGroupNotFoundIsForgiving(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "hop.yaml")
+	original := `repos:
+  default:
+    - git@github.com:sahil87/hop.git
+`
+	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	err := RemoveURL(path, "experiments", "git@github.com:sahil87/hop.git")
+	if err == nil {
+		t.Fatal("expected ErrGroupNotFound, got nil")
+	}
+	if !errors.Is(err, ErrGroupNotFound) {
+		t.Errorf("expected errors.Is(err, ErrGroupNotFound), got %v", err)
+	}
+	got, _ := os.ReadFile(path)
+	if string(got) != original {
+		t.Errorf("file modified despite group-not-found; got:\n%s", got)
 	}
 }
 
