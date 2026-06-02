@@ -75,6 +75,46 @@ jobs:
             tar -czf "../dist/${output}.tar.gz" -C "../dist/${output}" hop
           done
 
+      - name: Publish help reference to shll.ai
+        env:
+          SHLLAI_TOKEN: ${{ secrets.SHLLAI_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="${{ steps.version.outputs.version }}"
+          # 1. Dump the help tree from the freshly built, version-stamped binary
+          #    (the producer leaves captured_at empty).
+          ./dist/hop-linux-amd64/hop help-dump > /tmp/hop.raw.json
+          # 2. Inject a date-floored UTC captured_at (matches the wt.json convention).
+          captured_at=$(date -u +%Y-%m-%dT00:00:00Z)
+          jq --arg t "$captured_at" '.captured_at=$t' /tmp/hop.raw.json > /tmp/hop.json
+          # 3. Validate it parses and matches the contract (fail the release if malformed).
+          jq -e '.tool=="hop" and .schema_version==1 and (.root|type=="object") and (.captured_at|test("Z$"))' /tmp/hop.json >/dev/null
+          # 4. Clone shll.ai, drop the file on a fresh branch, open an auto-merge PR
+          #    (PR not push-to-main, to avoid the multi-repo push race).
+          git clone "https://x-access-token:${SHLLAI_TOKEN}@github.com/sahil87/shll.ai.git" /tmp/shllai
+          cd /tmp/shllai
+          branch="hop-help-${version}"
+          git checkout -b "$branch"
+          mkdir -p help
+          cp /tmp/hop.json help/hop.json
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add help/hop.json
+          # Nothing to publish if help/hop.json is unchanged (e.g. a workflow
+          # re-run, or a release with no CLI-surface change). Exit cleanly so a
+          # re-run can't be blocked by `git commit` failing on an empty commit.
+          if git diff --cached --quiet; then
+            echo "help/hop.json unchanged — nothing to publish, skipping PR."
+            exit 0
+          fi
+          git commit -m "hop help reference v${version}"
+          git push origin "$branch"
+          GH_TOKEN="$SHLLAI_TOKEN" gh pr create --repo sahil87/shll.ai \
+            --base main --head "$branch" \
+            --title "hop help reference v${version}" \
+            --body "Automated CLI help reference dump from hop v${version}."
+          GH_TOKEN="$SHLLAI_TOKEN" gh pr merge --repo sahil87/shll.ai "$branch" --auto --squash
+
       - name: Determine release notes base tag
         id: release-base
         run: |

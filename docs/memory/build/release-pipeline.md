@@ -38,7 +38,7 @@ Behavior:
 
 ## Workflow steps (`.github/workflows/release.yml`)
 
-Single job (`release`) on `ubuntu-latest`, `permissions: contents: write` (no other scopes), seven steps:
+Single job (`release`) on `ubuntu-latest`, `permissions: contents: write` (no other scopes), eight steps:
 
 1. **Checkout** with `fetch-depth: 0` — needed for the previous-tag-base computation.
 2. **Setup Go** with `go-version-file: src/go.mod` — keeps the CI Go version in lockstep with `go.mod`.
@@ -46,9 +46,10 @@ Single job (`release`) on `ubuntu-latest`, `permissions: contents: write` (no ot
    - `tag` (with `v` prefix, e.g. `v0.0.1`) — used for ldflags injection.
    - `version` (without prefix, e.g. `0.0.1`) — used for `sed` substitution into the formula.
 4. **Cross-compile** — loops over `darwin/arm64 darwin/amd64 linux/arm64 linux/amd64`, building with `CGO_ENABLED=0` and `-ldflags "-X main.version=${tag}"`. Each binary is tarred via `tar -czf "dist/${output}.tar.gz" -C "dist/${output}" hop` — archives contain only the `hop` binary (no LICENSE/README inside).
-5. **Determine release notes base tag** — minor-aware logic: if the patch component is `0` (minor bump), `base_tag` is set to the earliest tag matching `v{major}.{minor-1}.*` (sorted by `version:refname`, head -1), so v0.2.0's notes span the entire 0.1.x series. For patch bumps and major bumps, `base_tag` is left unset (default behavior: compare against the immediate previous tag).
-6. **Create GitHub Release** via `softprops/action-gh-release` with `files: dist/*.tar.gz`, `generate_release_notes: true`, and `previous_tag: ${{ steps.release-base.outputs.base_tag }}`.
-7. **Update Homebrew tap** — see Formula template below.
+5. **Publish help reference to shll.ai** — see [help reference publish step](#help-reference-publish-step-shllai) below.
+6. **Determine release notes base tag** — minor-aware logic: if the patch component is `0` (minor bump), `base_tag` is set to the earliest tag matching `v{major}.{minor-1}.*` (sorted by `version:refname`, head -1), so v0.2.0's notes span the entire 0.1.x series. For patch bumps and major bumps, `base_tag` is left unset (default behavior: compare against the immediate previous tag).
+7. **Create GitHub Release** via `softprops/action-gh-release` with `files: dist/*.tar.gz`, `generate_release_notes: true`, and `previous_tag: ${{ steps.release-base.outputs.base_tag }}`.
+8. **Update Homebrew tap** — see Formula template below.
 
 ## Action SHAs
 
@@ -61,6 +62,23 @@ All third-party actions are pinned to commit SHAs with `# v<N>` comments:
 | `softprops/action-gh-release` | `153bb8e04406b158c6c84fc1615b65b24149a1fe` | v2 |
 
 **Policy**: SHAs match `~/code/sahil87/run-kit/.github/workflows/release.yml` at apply time. Deviations need explicit justification — the lockstep keeps both repos updateable via a single-source diff if a third-party action ever needs bumping.
+
+## Help reference publish step (shll.ai)
+
+Added by change `jr5f`. Runs immediately after Cross-compile (step 5 of 8), on every `v*` tag. It publishes hop's CLI help tree to the shll.ai landing site, which renders an expandable "Command reference" on each tool's page from a per-tool `help/<tool>.json` artifact. This is hop's slice of a 7-tool rollout that all publish the same JSON shape; the shll.ai site-side consumer (Astro loader + reference UI) is tracked separately in the `sahil87/shll.ai` repo.
+
+The step is a single `run:` block (`set -euo pipefail`) that:
+
+1. **Dumps** the help tree from the freshly built, version-stamped linux-amd64 binary: `./dist/hop-linux-amd64/hop help-dump > /tmp/hop.raw.json`. The producer leaves `captured_at` empty (see [cli/subcommands § help-dump contract](../cli/subcommands.md#hop-help-dump--json-help-tree-contract)). Running the just-built binary guarantees the captured `version` matches the released tag.
+2. **Injects `captured_at`** as a date-floored UTC value: `captured_at=$(date -u +%Y-%m-%dT00:00:00Z)` then `jq --arg t "$captured_at" '.captured_at=$t'` → `/tmp/hop.json`. Date-floored (`00:00:00Z`) matches the `wt.json` reference convention and keeps the dump deterministic per day.
+3. **Validates** with `jq -e '.tool=="hop" and .schema_version==1 and (.root|type=="object") and (.captured_at|test("Z$"))'` — a malformed artifact fails the release loudly.
+4. **Opens a PR** into `sahil87/shll.ai` (never a direct push): clones via `https://x-access-token:${SHLLAI_TOKEN}@github.com/sahil87/shll.ai.git`, creates branch `hop-help-${version}` (bare version, no `v` prefix — same `steps.version.outputs.version` used by the formula `sed`), writes `help/hop.json`, commits as `github-actions[bot]` (`hop help reference v${version}`), pushes, then `gh pr create` + `gh pr merge --auto --squash` (both with `GH_TOKEN="$SHLLAI_TOKEN"`).
+
+**Why PR + auto-merge, not push-to-main**: when all 7 tools publish around the same time, concurrent direct pushes to `shll.ai` `main` would race. A per-tool branch + auto-merge serializes the merges server-side. The tag-scoped branch name (`hop-help-${version}`) is also sufficient idempotency for re-running the same tag.
+
+**Secret**: uses the repo secret `SHLLAI_TOKEN` (distinct from `HOMEBREW_TAP_TOKEN`), which must grant `contents:write` + `pull-requests:write` on `sahil87/shll.ai`. Set as a GitHub repository secret on `sahil87/hop`. **Security**: the producer is pure Go (no subprocess); the CI step shells out to `git`/`gh`/`jq` only with the trusted tag-derived `version`, never untrusted user input (Constitution Principle I).
+
+**Local equivalent**: `just help-dump` → `scripts/help-dump.sh` builds hop and pretty-prints the dump via `jq` for inspection (no publish). See [build/local](local.md).
 
 ## Formula template (`.github/formula-template.rb`)
 
@@ -92,7 +110,8 @@ The published formula's structure:
 One-time setup per repo:
 
 1. **Provision `HOMEBREW_TAP_TOKEN`** as a GitHub repository secret on `sahil87/hop`. It must be a fine-grained Personal Access Token with `Contents: write` permission scoped to `sahil87/homebrew-tap`. This step is manual (GitHub UI) and cannot be automated.
-2. **Verify the tap repo** — `sahil87/homebrew-tap` must exist and the bot must have push access via the token. The `Formula/` directory already exists (it hosts `Formula/rk.rb` for run-kit).
+2. **Provision `SHLLAI_TOKEN`** as a GitHub repository secret on `sahil87/hop`. It must grant `Contents: write` + `Pull requests: write` scoped to `sahil87/shll.ai` (the help-reference publish step opens a PR). Manual (GitHub UI). If missing/invalid, the publish step fails on `git clone` with an auth error.
+3. **Verify the tap repo** — `sahil87/homebrew-tap` must exist and the bot must have push access via the token. The `Formula/` directory already exists (it hosts `Formula/rk.rb` for run-kit).
 
 ## Release-day runbook
 
@@ -118,4 +137,4 @@ These are policy decisions, not deferrals:
 
 - `docs/specs/build-and-release.md` — pre-implementation design intent and behavioral scenarios.
 - `docs/memory/build/local.md` — `just build` / `just install` for local development.
-- `docs/memory/cli/subcommands.md` — the binary being released, including its `--version` surface.
+- `docs/memory/cli/subcommands.md` — the binary being released, including its `--version` surface and the hidden [`hop help-dump`](../cli/subcommands.md#hop-help-dump--json-help-tree-contract) producer the publish step invokes.

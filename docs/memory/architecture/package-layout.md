@@ -22,6 +22,7 @@ src/
 │   ├── config_scan.go            # `hop config scan` RunE + slugify, conflict resolution, summary emission + shared validateConfigDir
 │   ├── config_add.go             # `hop config add <dir>` RunE — single-dir classify (scan.ClassifyOne) + buildScanPlan + MergeScan
 │   ├── config_rm.go              # `hop config rm [--stale]` RunE — fzf picker (pickOne seam) + path-column map-back + yamled.RemoveURL
+│   ├── help_dump.go              # hidden `hop help-dump` producer — Doc/Node structs, cobra-tree walk, buildHelpDoc(cmd.Root())
 │   ├── *_test.go                 # adjacent unit tests
 │   ├── dashr_test.go             # extractDashR unit tests
 │   ├── integration_test.go       # builds the binary and exercises it end-to-end
@@ -81,6 +82,14 @@ Each subcommand is exposed via a `func newXxxCmd() *cobra.Command` factory in it
 ### Why pre-Execute argv inspection for `-R`
 
 Cobra's flag parser would try to dispatch `<cmd>...` after `-R <name>` as a subcommand (or its args), which fails for arbitrary child commands like `hop -R name git status`. Pre-Execute inspection of `os.Args` lets us split argv into the hop portion (just `-R <name>`) and the child portion (the rest), then run the child directly via `proc.RunForeground`. The split is a single function (`extractDashR`), unit-tested in `dashr_test.go`.
+
+## `help_dump.go` — help-tree producer
+
+New file (change `jr5f`). Houses the hidden `hop help-dump` subcommand and its pure-Go producer; `newHelpDumpCmd()` is wired into `newRootCmd()`'s `AddCommand(...)` alongside the other factories. The file follows the package's conventions: a `newXxxCmd()` factory, structured cobra accessors, adjacent `help_dump_test.go`.
+
+The producer **walks the live cobra tree** rather than regex-parsing `-h` output: `buildHelpDoc(cmd.Root())` (called from `RunE` so it gets the wired root with `Version` set and all subcommands attached), then `buildNode` recurses via `cmd.Commands()`. `shouldSkipChild` prunes `completion`, `help`, any `Hidden` command (including `help-dump` itself), and `IsAdditionalHelpTopicCommand()` topics. It is **pure Go** — `encoding/json` + cobra only, **no subprocess** (no `internal/proc`, no `os/exec`) and no `time.Now()` — so it builds on all four targets and stays deterministic/testable. The emitted JSON contract, field semantics, and CI publish flow are documented in [cli/subcommands § help-dump contract](../cli/subcommands.md#hop-help-dump--json-help-tree-contract) and [build/release-pipeline § help reference publish step](../build/release-pipeline.md#help-reference-publish-step-shllai).
+
+Note the `extractDashR` / `-R` / tool-form invocations (`main.go`) live **outside** the cobra tree, so the walk never sees them as nodes — they are described only via the root node's `text` (which carries `rootLong`). This is intentional (intake assumption 7), consistent with why `-R` uses pre-Execute argv inspection rather than a cobra subcommand (see above).
 
 ## `internal/yamled`
 
