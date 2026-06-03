@@ -75,46 +75,6 @@ jobs:
             tar -czf "../dist/${output}.tar.gz" -C "../dist/${output}" hop
           done
 
-      - name: Publish help reference to shll.ai
-        env:
-          SHLLAI_TOKEN: ${{ secrets.SHLLAI_TOKEN }}
-        run: |
-          set -euo pipefail
-          version="${{ steps.version.outputs.version }}"
-          # 1. Dump the help tree from the freshly built, version-stamped binary
-          #    (the producer leaves captured_at empty).
-          ./dist/hop-linux-amd64/hop help-dump > /tmp/hop.raw.json
-          # 2. Inject a date-floored UTC captured_at (matches the wt.json convention).
-          captured_at=$(date -u +%Y-%m-%dT00:00:00Z)
-          jq --arg t "$captured_at" '.captured_at=$t' /tmp/hop.raw.json > /tmp/hop.json
-          # 3. Validate it parses and matches the contract (fail the release if malformed).
-          jq -e '.tool=="hop" and .schema_version==1 and (.root|type=="object") and (.captured_at|test("Z$"))' /tmp/hop.json >/dev/null
-          # 4. Clone shll.ai, drop the file on a fresh branch, open an auto-merge PR
-          #    (PR not push-to-main, to avoid the multi-repo push race).
-          git clone "https://x-access-token:${SHLLAI_TOKEN}@github.com/sahil87/shll.ai.git" /tmp/shllai
-          cd /tmp/shllai
-          branch="hop-help-${version}"
-          git checkout -b "$branch"
-          mkdir -p help
-          cp /tmp/hop.json help/hop.json
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add help/hop.json
-          # Nothing to publish if help/hop.json is unchanged (e.g. a workflow
-          # re-run, or a release with no CLI-surface change). Exit cleanly so a
-          # re-run can't be blocked by `git commit` failing on an empty commit.
-          if git diff --cached --quiet; then
-            echo "help/hop.json unchanged — nothing to publish, skipping PR."
-            exit 0
-          fi
-          git commit -m "hop help reference v${version}"
-          git push origin "$branch"
-          GH_TOKEN="$SHLLAI_TOKEN" gh pr create --repo sahil87/shll.ai \
-            --base main --head "$branch" \
-            --title "hop help reference v${version}" \
-            --body "Automated CLI help reference dump from hop v${version}."
-          GH_TOKEN="$SHLLAI_TOKEN" gh pr merge --repo sahil87/shll.ai "$branch" --auto --squash
-
       - name: Determine release notes base tag
         id: release-base
         run: |
@@ -174,3 +134,58 @@ jobs:
           git add Formula/hop.rb
           git commit -m "hop v${version}"
           git push
+
+      - name: Dump help tree and PR to shll.ai
+        # Best-effort: this publishes the command reference downstream and must
+        # never flip the release job red after the GitHub Release + Homebrew tap
+        # steps have already succeeded. Merging is owned by shll.ai's
+        # help-automerge.yml (gated on actor/content/schema) — we only open the PR.
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.SHLLAI_TOKEN }}   # sahil87 PAT: contents + pull-requests write on shll.ai
+        run: |
+          set -euo pipefail
+          version="${{ steps.version.outputs.version }}"
+
+          # 1. Dump the help tree from the stamped native binary (the producer
+          #    leaves captured_at empty) and inject a date-floored UTC captured_at.
+          mkdir -p help
+          ./dist/hop-linux-amd64/hop help-dump > /tmp/hop.raw.json
+          captured_at=$(date -u +%Y-%m-%dT00:00:00Z)
+          jq --arg t "$captured_at" '.captured_at=$t' /tmp/hop.raw.json > help/hop.json
+
+          # 2. Validate it parses and matches the contract (the authoritative
+          #    schema gate lives in shll.ai's validate-help.mjs).
+          jq -e '.tool=="hop" and .schema_version==1 and (.root|type=="object") and (.captured_at|test("Z$"))' help/hop.json >/dev/null
+
+          # 3. Clone shll.ai and open a PR (PR, not push-to-main, to avoid the
+          #    multi-repo push race). shll.ai's automerge workflow merges it.
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/sahil87/shll.ai.git" /tmp/shll-ai
+
+          # No-op guard: skip when the only difference is the captured_at timestamp
+          # (which changes every run), so re-running a release does not spam
+          # downstream PRs with content-identical references. Compare both files
+          # with the captured_at line stripped.
+          strip_captured_at() { grep -v '"captured_at"' "$1"; }
+          if [ -f /tmp/shll-ai/help/hop.json ] \
+             && diff -q <(strip_captured_at help/hop.json) \
+                        <(strip_captured_at /tmp/shll-ai/help/hop.json) >/dev/null; then
+            echo "No substantive change to help/hop.json (only captured_at differs) — skipping PR"
+            exit 0
+          fi
+
+          mkdir -p /tmp/shll-ai/help
+          cp help/hop.json /tmp/shll-ai/help/hop.json
+          cd /tmp/shll-ai
+          branch="help-dump/hop-${version}"
+          # Author as sahil87 to satisfy shll.ai's actor guard (TRUSTED_AUTHOR).
+          git config user.name "sahil87"
+          git config user.email "sahil@noon.design"
+          git checkout -b "$branch"
+          git add help/hop.json                       # only this file — content guard
+          git commit -m "hop: update command reference (v${version})"
+          git push -u origin "$branch"
+          gh pr create --repo sahil87/shll.ai --base main --head "$branch" \
+            --title "hop: command reference v${version}" \
+            --body "Automated help-dump from sahil87/hop v${version}. Auto-merges via help-automerge.yml once the actor/content/schema guards pass."
+          # NO `gh pr merge` here — shll.ai's help-automerge.yml owns merging.
