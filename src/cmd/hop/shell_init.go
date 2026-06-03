@@ -15,8 +15,8 @@ import (
 //
 //  1. No args                                           → bare picker
 //  2. $1 is __complete*                                 → forward to binary (cobra completion)
-//  3. $1 is a known subcommand (no `cd`/`where` —       → _hop_dispatch
-//     those are now $2 verbs, not $1 subcommands)
+//  3. $1 is a known subcommand (add, rm, clone, pull,   → _hop_dispatch
+//     ... — but never `cd`/`where`, which are $2 verbs)
 //  4. $1 is a flag                                      → forward to binary
 //  5. otherwise ($1 is treated as a repo name) — dispatch on $2:
 //     $# == 1                                         → _hop_dispatch cd "$1" (bare-name → cd)
@@ -48,7 +48,7 @@ hop() {
       # __complete through the bare-name dispatcher and treat it as a repo name.
       command hop "$@"
       ;;
-    clone|pull|push|sync|ls|shell-init|config|update|help|--help|-h|--version|completion)
+    add|rm|clone|pull|push|sync|ls|shell-init|config|update|help|--help|-h|--version|completion)
       _hop_dispatch "$@"
       ;;
     -*)

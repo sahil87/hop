@@ -17,11 +17,11 @@ src/
 │   ├── clone.go, ls.go
 │   ├── pull.go                   # newPullCmd + pullSingle/pullBatch/pullOne + lastNonEmptyLine
 │   ├── sync.go                   # newSyncCmd + syncSingle/syncBatch/syncOne + mentionsConflict
-│   ├── shell_init.go             # posixInit (shared zsh+bash, includes pull|sync in known-subcommand list) + cobra GenZshCompletion / GenBashCompletionV2 at runtime
-│   ├── config.go                 # config + nested init/where/scan/add/rm/print subcommand factories
+│   ├── shell_init.go             # posixInit (shared zsh+bash, includes add|rm|pull|sync in known-subcommand list) + cobra GenZshCompletion / GenBashCompletionV2 at runtime
+│   ├── config.go                 # config parent + nested init/where/scan/print factories; also wires the HIDDEN config add/config rm aliases
 │   ├── config_scan.go            # `hop config scan` RunE + slugify, conflict resolution, summary emission + shared validateConfigDir
-│   ├── config_add.go             # `hop config add <dir>` RunE — single-dir classify (scan.ClassifyOne) + buildScanPlan + MergeScan
-│   ├── config_rm.go              # `hop config rm [--stale]` RunE — fzf picker (pickOne seam) + path-column map-back + yamled.RemoveURL
+│   ├── config_add.go             # canonical `hop add <dir>` (newAddCmd) + hidden alias `hop config add` (newConfigAddCmd), both backed by the shared runAdd(cmd, cmdName, arg) — single-dir classify (scan.ClassifyOne) + buildScanPlan + MergeScan
+│   ├── config_rm.go              # canonical `hop rm [<name>]` (newRmCmd) + hidden alias `hop config rm` (newConfigRmCmd), both backed by the shared runRm(cmd, cmdName, stale, name) — fzf picker (pickOne seam) + path-column map-back, OR resolveByName for the positional path, then the shared removeRepo → yamled.RemoveURL
 │   ├── help_dump.go              # hidden `hop help-dump` producer — Doc/Node structs, cobra-tree walk, buildHelpDoc(cmd.Root())
 │   ├── *_test.go                 # adjacent unit tests
 │   ├── dashr_test.go             # extractDashR unit tests
@@ -40,7 +40,7 @@ src/
     ├── yamled/                   # comment-preserving YAML node-level edits
     │   ├── yamled.go             # AppendURL, RemoveURL, MergeScan, RenderScan, ScanPlan, InventedGroup, ErrGroupNotFound, ErrURLNotFound, atomic write
     │   └── yamled_test.go
-    ├── scan/                     # DFS walk + repo classification for `hop config scan` / `hop config add`
+    ├── scan/                     # DFS walk + repo classification for `hop config scan` / `hop add`
     │   ├── scan.go               # Walk, ClassifyOne, Found, Skip, Options, GitRunner; closed Reason enum; (dev,inode) loop dedup
     │   └── scan_test.go
     ├── fzf/                      # fzf wrapper
@@ -69,7 +69,7 @@ src/
 
 ## Cobra wiring
 
-Each subcommand is exposed via a `func newXxxCmd() *cobra.Command` factory in its own file. `root.go::newRootCmd()` constructs the root and calls `AddCommand(newWhereCmd(), newCdCmd(), newCloneCmd(), newLsCmd(), newShellInitCmd(), newConfigCmd(), newUpdateCmd())`. `main.go::main()`:
+Each subcommand is exposed via a `func newXxxCmd() *cobra.Command` factory in its own file. `root.go::newRootCmd()` constructs the root and calls `AddCommand(newAddCmd(), newRmCmd(), newCloneCmd(), newPullCmd(), newPushCmd(), newSyncCmd(), newLsCmd(), newShellInitCmd(), newConfigCmd(), newUpdateCmd(), newHelpDumpCmd())`. That is **ten user-facing top-level subcommands** (`add`, `rm`, `clone`, `pull`, `push`, `sync`, `ls`, `shell-init`, `config`, `update`) plus the hidden `help-dump`. The registry-edit verbs `add` / `rm` are the canonical top-level commands; `config add` / `config rm` survive as hidden aliases sharing the same `runAdd` / `runRm` bodies (wired under `config` in `config.go`, not here) — see [cli/subcommands § Migration: hidden config aliases](../cli/subcommands.md#migration-hidden-config-aliases). `main.go::main()`:
 
 1. Builds `rootCmd := newRootCmd()`.
 2. Sets `rootCmd.Version = version` (the package-level `var version = "dev"`, overridden via `-ldflags "-X main.version=…"` at build time — see [build/local](../build/local.md)).
@@ -106,9 +106,9 @@ var ErrURLNotFound   = errors.New("yamled: url not found")
 
 `AppendURL` reads the file as a `*yaml.Node` tree, navigates `repos.<group>`, appends a new scalar to either the sequence body (flat group) or the `urls:` child sequence (map-shaped group), then marshals and atomically writes back via temp file + rename. Comments are preserved by the yaml.v3 round-trip; **indentation is normalized to yaml.v3 defaults** (this is a deliberate design choice, not a guarantee — comment preservation is the contract, byte-perfect formatting is not).
 
-`RemoveURL` is the mirror of `AppendURL` (added in change `260602-n1me-config-add-rm-folders`, consumed by `hop config rm`): same tree round-trip + `atomicWrite`, but it locates the matching URL scalar (via the `urlsSequenceOf` / `indexOfScalar` helpers, handling both the flat-list and `urls:`-map shapes) and drops it from the group's URL sequence. Removing a group's last URL **leaves the empty group node in place** (the group key is never deleted), keeping it a valid `hop clone --group` target — see [config/yaml-schema](../config/yaml-schema.md#empty--placeholder-groups).
+`RemoveURL` is the mirror of `AppendURL` (added in change `260602-n1me-config-add-rm-folders`, consumed by the canonical `hop rm` and its hidden `hop config rm` alias, via the shared `removeRepo` helper): same tree round-trip + `atomicWrite`, but it locates the matching URL scalar (via the `urlsSequenceOf` / `indexOfScalar` helpers, handling both the flat-list and `urls:`-map shapes) and drops it from the group's URL sequence. Removing a group's last URL **leaves the empty group node in place** (the group key is never deleted), keeping it a valid `hop clone --group` target — see [config/yaml-schema](../config/yaml-schema.md#empty--placeholder-groups).
 
-Errors are wrapped fmt.Errorf strings; missing-group is additionally wrapped via `%w` with `ErrGroupNotFound` so callers can detect via `errors.Is`. `RemoveURL` also wraps `ErrURLNotFound` when the group exists but the URL is absent (and reuses `ErrGroupNotFound` when the group itself is missing); both not-found cases are no-ops that leave the file byte-for-byte unchanged, so `hop config rm` can surface them as a forgiving message + exit 0.
+Errors are wrapped fmt.Errorf strings; missing-group is additionally wrapped via `%w` with `ErrGroupNotFound` so callers can detect via `errors.Is`. `RemoveURL` also wraps `ErrURLNotFound` when the group exists but the URL is absent (and reuses `ErrGroupNotFound` when the group itself is missing); both not-found cases are no-ops that leave the file byte-for-byte unchanged, so `hop rm` / `hop config rm` (via `removeRepo`) can surface them as a forgiving message + exit 0.
 
 ## `internal/scan`
 
@@ -135,7 +135,7 @@ const (
 
 `Walk` performs a stack-based DFS, classifies each candidate via first-match-wins rules, and registers found repos by invoking `git remote` + `git remote get-url` through `Options.GitRunner` (production binds `internal/proc.RunCapture`). Tests inject a fake `GitRunner` so no real `git` subprocess spawns. Discovery order is DFS lexical (deterministic for reproducible test fixtures and slug-tie tiebreaking). See [config/scan](../config/scan.md) for the classification rules and the submodule-handling rationale.
 
-`ClassifyOne` (added in change `260602-n1me-config-add-rm-folders`, consumed by `cmd/hop/config_add.go`) is the **single-dir entry point** for `hop config add`: it classifies one already-canonical directory (no recursion, `opts.Depth` ignored) and, for a normal repo, inspects its remote — reusing the *exact* unexported `classifyDir` + `inspectRepo` logic `Walk` applies per directory. It returns exactly one of: `isRepo=true` with `Found` populated (normal repo with a usable remote); `isRepo=false` with `skipReason` set to a `Reason*` constant (worktree / bare repo / no-remote); or `isRepo=false` with `skipReason==""` (a plain non-git dir). `err` is non-nil only on a fatal `git` failure (wraps `proc.ErrNotFound` for `errors.Is` matching). **Exported-seam design note**: `ClassifyOne` is the *smallest* exported surface that gives the CLI what it needs — exporting `classifyDir` raw was rejected because it would leak the private `dirClass` enum and skip the remote-inspection step (`inspectRepo`) the CLI requires. The CLI canonicalizes `dir` (via the shared `validateConfigDir`) before calling, and `ClassifyOne` stays UI-free like the rest of the package.
+`ClassifyOne` (added in change `260602-n1me-config-add-rm-folders`, consumed by `cmd/hop/config_add.go`'s shared `runAdd` body) is the **single-dir entry point** for `hop add` (and its hidden `hop config add` alias): it classifies one already-canonical directory (no recursion, `opts.Depth` ignored) and, for a normal repo, inspects its remote — reusing the *exact* unexported `classifyDir` + `inspectRepo` logic `Walk` applies per directory. It returns exactly one of: `isRepo=true` with `Found` populated (normal repo with a usable remote); `isRepo=false` with `skipReason` set to a `Reason*` constant (worktree / bare repo / no-remote); or `isRepo=false` with `skipReason==""` (a plain non-git dir). `err` is non-nil only on a fatal `git` failure (wraps `proc.ErrNotFound` for `errors.Is` matching). **Exported-seam design note**: `ClassifyOne` is the *smallest* exported surface that gives the CLI what it needs — exporting `classifyDir` raw was rejected because it would leak the private `dirClass` enum and skip the remote-inspection step (`inspectRepo`) the CLI requires. The CLI canonicalizes `dir` (via the shared `validateConfigDir`) before calling, and `ClassifyOne` stays UI-free like the rest of the package.
 
 ## Cross-references
 

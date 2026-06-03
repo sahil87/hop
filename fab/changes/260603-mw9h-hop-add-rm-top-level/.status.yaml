@@ -1,0 +1,49 @@
+id: mw9h
+name: 260603-mw9h-hop-add-rm-top-level
+created: 2026-06-03T14:17:49Z
+created_by: sahil87
+change_type: refactor
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 14
+    acceptance_count: 24
+    acceptance_completed: 24
+confidence:
+    certain: 11
+    confident: 0
+    tentative: 0
+    unresolved: 0
+    score: 5.0
+    fuzzy: true
+    dimensions:
+        signal: 94.0
+        reversibility: 75.0
+        competence: 77.0
+        disambiguation: 72.0
+stage_metrics:
+    intake: {started_at: "2026-06-03T14:17:49Z", driver: fab-new, iterations: 1, completed_at: "2026-06-03T14:38:18Z"}
+    apply: {started_at: "2026-06-03T14:38:18Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-03T14:48:17Z"}
+    review: {started_at: "2026-06-03T14:48:17Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-03T14:52:47Z"}
+    hydrate: {started_at: "2026-06-03T14:52:47Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-03T14:59:45Z"}
+    ship: {started_at: "2026-06-03T14:59:45Z", driver: fab-fff, iterations: 1}
+prs: []
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-06-03T14:59:45Z"
+    computed_at_stage: hydrate
+# true_impact: lazily created on first apply-finish (no placeholder here).
+last_updated: 2026-06-03T14:59:45Z

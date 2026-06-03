@@ -12,7 +12,7 @@ import (
 func newConfigCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "config",
-		Short: "config helpers (init, where, scan, add, rm, print)",
+		Short: "config helpers (init, where, scan, print)",
 	}
 	cmd.AddCommand(newConfigInitCmd(), newConfigWhereCmd(), newConfigScanCmd(), newConfigAddCmd(), newConfigRmCmd(), newConfigPrintCmd())
 	return cmd

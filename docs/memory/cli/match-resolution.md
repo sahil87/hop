@@ -1,6 +1,6 @@
 # Match Resolution
 
-Algorithm shared by every form that takes a `<name>` argument (`hop` bare picker, `hop <name> where`, `hop <name> cd` via the shim's `_hop_dispatch cd` → `command hop "$2" where`, `hop clone`, `hop -R`). Implemented in `src/cmd/hop/resolve.go::resolveByName` and `src/internal/repos/repos.go::MatchOne`.
+Algorithm shared by every form that takes a `<name>` argument (`hop` bare picker, `hop <name> where`, `hop <name> cd` via the shim's `_hop_dispatch cd` → `command hop "$2" where`, `hop clone`, `hop -R`, and `hop rm <name>`). Implemented in `src/cmd/hop/resolve.go::resolveByName` and `src/internal/repos/repos.go::MatchOne`.
 
 `hop pull` and `hop sync` use a richer resolver — `resolveTargets` — that prepends an exact group-name match step in front of this same algorithm. See [Name-or-Group Resolution](#name-or-group-resolution) below.
 
@@ -82,7 +82,7 @@ Resolution rules — first match wins:
 
 `resolveTargets` does not re-load YAML for the group-match step — it inspects the `r.Group` field on the already-projected `repos.Repos` slice from `loadRepos()`, avoiding a second `config.Load` round-trip and reusing `FromConfig`'s path-resolution.
 
-The simpler `resolveByName` (and its cobra wrapper `resolveOne`) is still used by `hop` (bare picker), `hop <name> where`, `hop -R`, and `hop clone`'s repo-name argument. Those forms have a single-repo contract — there is no group concept, no `--all`, so there is nothing to add to the algorithm.
+The simpler `resolveByName` (and its cobra wrapper `resolveOne`) is still used by `hop` (bare picker), `hop <name> where`, `hop -R`, `hop clone`'s repo-name argument, and `hop rm <name>` (the new positional path — it calls `resolveOne(cmd, name)` then removes the resolved repo directly via `yamled.RemoveURL`, skipping the picker). Those forms have a single-repo contract — there is no group concept, no `--all`, so there is nothing to add to the algorithm.
 
 ### Group-vs-Repo Tiebreaker
 

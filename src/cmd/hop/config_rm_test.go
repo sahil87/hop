@@ -200,6 +200,136 @@ func TestConfigRmStaleNothingStale(t *testing.T) {
 	}
 }
 
+// --- top-level `hop rm` (change mw9h) -------------------------------------
+
+// TestTopLevelRmRemovesSelectedURL mirrors TestConfigRmRemovesSelectedURL but
+// drives the canonical top-level `hop rm` (no positional) — the shared runRm
+// body backs the picker path of both spellings (R3).
+func TestTopLevelRmRemovesSelectedURL(t *testing.T) {
+	yaml := `repos:
+  default:
+    - git@github.com:sahil87/hop.git
+    - git@github.com:sahil87/wt.git
+`
+	path := writeReposFixture(t, yaml)
+
+	withPickOne(t, pickLineContaining(t, "git@github.com:sahil87/wt.git"))
+
+	_, stderr, err := runArgs(t, "rm")
+	if err != nil {
+		t.Fatalf("hop rm: %v", err)
+	}
+	if !strings.Contains(stderr.String(), "removed: git@github.com:sahil87/wt.git") {
+		t.Errorf("missing removed line; stderr=%q", stderr.String())
+	}
+	got, _ := os.ReadFile(path)
+	gotStr := string(got)
+	if strings.Contains(gotStr, "wt.git") {
+		t.Errorf("removed URL still present; got:\n%s", gotStr)
+	}
+	if !strings.Contains(gotStr, "hop.git") {
+		t.Errorf("surviving URL missing; got:\n%s", gotStr)
+	}
+}
+
+// TestTopLevelRmByNameSkipsPicker asserts `hop rm <name>` resolves via
+// resolveByName (substring match, exactly one candidate → no fzf) and removes
+// directly via RemoveURL WITHOUT invoking the pickOne seam (R4). The pickOne
+// fake fails the test if called.
+func TestTopLevelRmByNameSkipsPicker(t *testing.T) {
+	yaml := `repos:
+  default:
+    - git@github.com:sahil87/hop.git
+    - git@github.com:sahil87/wt.git
+`
+	path := writeReposFixture(t, yaml)
+
+	withPickOne(t, func(ctx context.Context, lines []string, query string) (string, error) {
+		t.Fatalf("picker invoked on `hop rm <name>` path; lines=%v", lines)
+		return "", nil
+	})
+
+	// "wt" uniquely substring-matches the wt repo → resolveByName returns it
+	// directly without fzf.
+	_, stderr, err := runArgs(t, "rm", "wt")
+	if err != nil {
+		t.Fatalf("hop rm wt: %v", err)
+	}
+	if !strings.Contains(stderr.String(), "removed: git@github.com:sahil87/wt.git") {
+		t.Errorf("expected wt removed; stderr=%q", stderr.String())
+	}
+	got, _ := os.ReadFile(path)
+	gotStr := string(got)
+	if strings.Contains(gotStr, "wt.git") {
+		t.Errorf("removed URL still present; got:\n%s", gotStr)
+	}
+	if !strings.Contains(gotStr, "hop.git") {
+		t.Errorf("surviving URL missing; got:\n%s", gotStr)
+	}
+}
+
+// TestTopLevelRmByNameRemovesRegardlessOfDisk asserts `hop rm <name>` removes a
+// registry entry even when its on-disk folder is absent — no Stat check, no
+// "not cloned" error, no prompt (R5). The repo's `dir` points at a temp dir but
+// the repo folder itself was never created.
+func TestTopLevelRmByNameRemovesRegardlessOfDisk(t *testing.T) {
+	parent := t.TempDir() // exists, but no `gone/` repo folder inside it
+	yaml := fmt.Sprintf(`repos:
+  default:
+    dir: %s
+    urls:
+      - git@github.com:org/gone.git
+`, parent)
+	path := writeReposFixture(t, yaml)
+
+	withPickOne(t, func(ctx context.Context, lines []string, query string) (string, error) {
+		t.Fatalf("picker invoked on `hop rm <name>` path; lines=%v", lines)
+		return "", nil
+	})
+
+	_, stderr, err := runArgs(t, "rm", "gone")
+	if err != nil {
+		t.Fatalf("hop rm gone (folder absent): %v", err)
+	}
+	if !strings.Contains(stderr.String(), "removed: git@github.com:org/gone.git") {
+		t.Errorf("expected gone removed despite absent folder; stderr=%q", stderr.String())
+	}
+	got, _ := os.ReadFile(path)
+	if strings.Contains(string(got), "gone.git") {
+		t.Errorf("entry not removed; got:\n%s", got)
+	}
+}
+
+// TestTopLevelRmStaleWithNameIsUsageError asserts that combining --stale with a
+// positional name is a usage error (exit 2) that removes nothing (R6).
+func TestTopLevelRmStaleWithNameIsUsageError(t *testing.T) {
+	yaml := `repos:
+  default:
+    - git@github.com:sahil87/hop.git
+`
+	path := writeReposFixture(t, yaml)
+	original, _ := os.ReadFile(path)
+
+	withPickOne(t, func(ctx context.Context, lines []string, query string) (string, error) {
+		t.Fatalf("resolution/picker should not run on a usage error; lines=%v", lines)
+		return "", nil
+	})
+
+	_, stderr, err := runArgs(t, "rm", "hop", "--stale")
+	var ec *errExitCode
+	if !errors.As(err, &ec) || ec.code != 2 {
+		t.Fatalf("expected errExitCode{code:2}, got %v", err)
+	}
+	if !strings.Contains(ec.msg+stderr.String(), "--stale cannot be combined with a repo name") {
+		t.Errorf("expected --stale+name usage message; err=%v stderr=%q", err, stderr.String())
+	}
+	// File unchanged.
+	got, _ := os.ReadFile(path)
+	if string(got) != string(original) {
+		t.Errorf("hop.yaml modified on usage error; got:\n%s", got)
+	}
+}
+
 func TestConfigRmFzfMissing(t *testing.T) {
 	yaml := `repos:
   default:
