@@ -14,10 +14,6 @@ local-install:
 test:
     cd src && go test ./...
 
-# Build hop and pretty-print its CLI help tree as JSON (the help/hop.json contract).
-help-dump:
-    ./scripts/help-dump.sh
-
 # Cut a release: compute next semver tag from `git describe`, push the tag.
 # CI (.github/workflows/release.yml) takes over from there to cross-compile,
 # create the GitHub Release, and update the Homebrew tap. Working tree must be clean.

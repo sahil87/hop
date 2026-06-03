@@ -1,0 +1,12 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-06-03T07:54:33Z"}
+{"args":"Tear down hop's shll.ai help-dump push wiring now that shll.ai pulls help via its own scheduled job (transport inversion). Remove the 'Dump help tree and PR to shll.ai' step in .github/workflows/release.yml including SHLLAI_TOKEN usage; remove scripts/help-dump.sh and the justfile help-dump recipe; preserve the help-dump command and its tests.","cmd":"fab-new","event":"command","ts":"2026-06-03T07:54:33Z"}
+{"delta":"+3.1","event":"confidence","score":3.1,"trigger":"calc-score","ts":"2026-06-03T07:55:44Z"}
+{"delta":"+0.0","event":"confidence","score":3.1,"trigger":"calc-score","ts":"2026-06-03T07:55:52Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-06-03T14:18:08Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-06-03T14:18:08Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-06-03T14:19:29Z"}
+{"action":"enter","driver":"fab-continue","event":"stage-transition","stage":"review","ts":"2026-06-03T14:21:31Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-06-03T14:23:49Z"}
+{"event":"review","result":"passed","ts":"2026-06-03T14:23:49Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-06-03T14:27:52Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-06-03T14:29:09Z"}
