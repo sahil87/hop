@@ -15,7 +15,7 @@ Getting started:
      (git-tracked dotfile, Dropbox, etc.) so it follows you across machines.
   4. For interactive use, install the shim: eval "$(hop shell-init zsh)"
 
-Usage:
+Cheat sheet:
   hop                       fzf picker, print selection
   hop <name>                cd into the repo (shell function — needs ` + "`eval \"$(hop shell-init zsh)\"`" + `)
   hop <name>/<wt>           same, but rooted at <wt> (a worktree of <name> per ` + "`wt list --json`" + `)
