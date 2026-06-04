@@ -300,6 +300,43 @@ func TestTopLevelRmByNameRemovesRegardlessOfDisk(t *testing.T) {
 	}
 }
 
+// TestTopLevelRmByNameStripsWorktreeSuffix asserts `hop rm <name>/<wt>` strips
+// the "/<wt>" suffix, resolves the parent repo, and removes it directly —
+// WITHOUT entering resolveByName's worktree branch (which would force an
+// on-disk clone + `wt list` check and fail here, since the folder is absent).
+// This keeps the "no on-disk check" guarantee true for every input. The repo
+// folder is intentionally never created; if the worktree branch ran, it would
+// error with "is not cloned" instead of removing.
+func TestTopLevelRmByNameStripsWorktreeSuffix(t *testing.T) {
+	parent := t.TempDir() // exists, but no `gone/` repo folder inside it
+	yaml := fmt.Sprintf(`repos:
+  default:
+    dir: %s
+    urls:
+      - git@github.com:org/gone.git
+`, parent)
+	path := writeReposFixture(t, yaml)
+
+	withPickOne(t, func(ctx context.Context, lines []string, query string) (string, error) {
+		t.Fatalf("picker invoked on `hop rm <name>/<wt>` path; lines=%v", lines)
+		return "", nil
+	})
+
+	// "gone/feature-x" → suffix stripped → resolves the parent "gone" repo and
+	// removes it, never touching the worktree/clone-state machinery.
+	_, stderr, err := runArgs(t, "rm", "gone/feature-x")
+	if err != nil {
+		t.Fatalf("hop rm gone/feature-x (suffix should be stripped): %v", err)
+	}
+	if !strings.Contains(stderr.String(), "removed: git@github.com:org/gone.git") {
+		t.Errorf("expected parent repo removed after stripping /<wt>; stderr=%q", stderr.String())
+	}
+	got, _ := os.ReadFile(path)
+	if strings.Contains(string(got), "gone.git") {
+		t.Errorf("entry not removed; got:\n%s", got)
+	}
+}
+
 // TestTopLevelRmStaleWithNameIsUsageError asserts that combining --stale with a
 // positional name is a usage error (exit 2) that removes nothing (R6).
 func TestTopLevelRmStaleWithNameIsUsageError(t *testing.T) {

@@ -29,7 +29,9 @@ const rmLong = `Remove a registered repo from hop.yaml.
 With no argument, pipes the registered repos through fzf and removes the
 selected entry's URL from its group. With a <name>, resolves it via the same
 match-or-fzf algorithm used by 'hop <name> where' and removes that entry
-directly — naming a repo prunes it even if its folder is already gone.
+directly — naming a repo prunes it even if its folder is already gone. Removal
+always targets a whole repo entry; any '/<worktree>' suffix on <name> is
+ignored (worktrees are not registry entries).
 
 Removing a group's last URL leaves the (now-empty) group as a placeholder, so
 it stays a valid 'hop clone --group' target.
@@ -114,10 +116,22 @@ func runRm(cmd *cobra.Command, cmdName string, stale bool, name string) error {
 	}
 
 	// Positional path (new): resolve <name> via the shared match-or-fzf helper
-	// and remove it directly — no picker, no on-disk Stat, no prompt. The entry
+	// and remove it directly — no picker, no on-disk check, no prompt. The entry
 	// is removed regardless of whether the folder still exists.
 	if name != "" {
-		repo, err := resolveOne(cmd, name)
+		// Strip any "/<wt>" worktree suffix before resolving. Removal operates on
+		// the registry (a repo's URL in hop.yaml); worktrees are not registry
+		// entries, so the suffix is meaningless here — and resolveByName's
+		// worktree branch would otherwise force an on-disk clone + `wt list`
+		// check (breaking the "no on-disk check" guarantee) and then remove the
+		// whole parent repo anyway. Stripping makes the guarantee hold for every
+		// input and removes that footgun. Repo names in hop.yaml are URL
+		// basenames with no "/", so a first-"/" split is unambiguous.
+		repoName := name
+		if idx := strings.Index(repoName, "/"); idx >= 0 {
+			repoName = repoName[:idx]
+		}
+		repo, err := resolveOne(cmd, repoName)
 		if err != nil {
 			// resolveOne already wrote fzfMissingHint + returned errSilent on
 			// missing fzf; errFzfCancelled and *errExitCode propagate verbatim.

@@ -27,7 +27,7 @@ Unlike scan, add writes by default — you named a specific directory.
 A non-git directory is a no-op (a clear message, exit 0), not an error.
 
 Examples:
-  hop config add ~/code/acme/widget   register one existing repo into hop.yaml`
+  hop add ~/code/acme/widget   register one existing repo into hop.yaml`
 
 // newAddCmd returns the cobra factory for the canonical top-level `hop add <dir>`.
 func newAddCmd() *cobra.Command {

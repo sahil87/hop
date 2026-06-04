@@ -82,7 +82,7 @@ Resolution rules — first match wins:
 
 `resolveTargets` does not re-load YAML for the group-match step — it inspects the `r.Group` field on the already-projected `repos.Repos` slice from `loadRepos()`, avoiding a second `config.Load` round-trip and reusing `FromConfig`'s path-resolution.
 
-The simpler `resolveByName` (and its cobra wrapper `resolveOne`) is still used by `hop` (bare picker), `hop <name> where`, `hop -R`, `hop clone`'s repo-name argument, and `hop rm <name>` (the new positional path — it calls `resolveOne(cmd, name)` then removes the resolved repo directly via `yamled.RemoveURL`, skipping the picker). Those forms have a single-repo contract — there is no group concept, no `--all`, so there is nothing to add to the algorithm.
+The simpler `resolveByName` (and its cobra wrapper `resolveOne`) is still used by `hop` (bare picker), `hop <name> where`, `hop -R`, `hop clone`'s repo-name argument, and `hop rm <name>` (the new positional path — it **strips any `/<worktree>` suffix off `name` first** (`strings.Index(name, "/")`), then calls `resolveOne(cmd, repoName)` and removes the resolved repo directly via `yamled.RemoveURL`, skipping the picker; the suffix is discarded because removal targets a whole registry entry and worktrees are not registry entries — this is the one consumer that intentionally bypasses the worktree-resolution sub-step rather than honoring the suffix). Those forms have a single-repo contract — there is no group concept, no `--all`, so there is nothing to add to the algorithm.
 
 ### Group-vs-Repo Tiebreaker
 
