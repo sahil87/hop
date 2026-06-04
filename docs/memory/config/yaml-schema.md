@@ -75,7 +75,7 @@ Both forms are valid:
 
 The latter is useful as a `--group` target for `hop clone <url>` before any URLs have been registered.
 
-This rule is load-bearing for **`yamled.RemoveURL`** (used by `hop config rm` — see [cli/subcommands](../cli/subcommands.md)): removing a group's last URL leaves the now-empty group node intact (`default: []` for flat groups, `mygroup: { dir: ..., urls: [] }` for map-shaped groups) rather than deleting the group key. `RemoveURL` only ever drops the matched URL scalar; the empty placeholder it leaves behind is a valid group by this rule, so the group stays a valid `hop clone --group` target.
+This rule is load-bearing for **`yamled.RemoveURL`** (used by `hop rm` and its hidden `hop config rm` alias — see [cli/subcommands](../cli/subcommands.md)): removing a group's last URL leaves the now-empty group node intact (`default: []` for flat groups, `mygroup: { dir: ..., urls: [] }` for map-shaped groups) rather than deleting the group key. `RemoveURL` only ever drops the matched URL scalar; the empty placeholder it leaves behind is a valid group by this rule, so the group stays a valid `hop clone --group` target.
 
 ## Loading semantics
 

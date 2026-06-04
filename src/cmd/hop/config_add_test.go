@@ -195,6 +195,74 @@ func TestConfigAddAlreadyRegisteredIsIdempotent(t *testing.T) {
 	}
 }
 
+// --- top-level `hop add` (change mw9h) ------------------------------------
+
+// TestTopLevelAddDirNotADirectory mirrors TestConfigAddDirNotADirectory but
+// drives the canonical top-level `hop add`, asserting the per-path stderr
+// prefix is `hop add:` (NOT `hop config add:`) — Assumption 8 / R8.
+func TestTopLevelAddDirNotADirectory(t *testing.T) {
+	dir := t.TempDir()
+	yaml := filepath.Join(dir, "hop.yaml")
+	if err := os.WriteFile(yaml, []byte("repos:\n  default: []\n"), 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	t.Setenv("HOP_CONFIG", yaml)
+
+	missing := "/no/such/path-topadd-test-xyz"
+	_, stderr, err := runArgs(t, "add", missing)
+	var ec *errExitCode
+	if !errors.As(err, &ec) || ec.code != 2 {
+		t.Fatalf("expected errExitCode{code:2}, got %v", err)
+	}
+	got := stderr.String()
+	want := "hop add: '" + missing + "' is not a directory."
+	if !strings.Contains(got, want) {
+		t.Errorf("expected canonical `hop add:` prefix; want %q, stderr=%q", want, got)
+	}
+	if strings.Contains(got, "hop config add:") {
+		t.Errorf("top-level `hop add` must not emit the alias prefix; stderr=%q", got)
+	}
+}
+
+// TestTopLevelAddConventionRepoLandsInDefault mirrors the config-add convention
+// test but through the top-level command, asserting identical merge behavior
+// (R1) — the shared runAdd body backs both spellings.
+func TestTopLevelAddConventionRepoLandsInDefault(t *testing.T) {
+	clearConfigEnv(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	hopYaml := filepath.Join(home, ".config", "hop", "hop.yaml")
+	if err := os.MkdirAll(filepath.Dir(hopYaml), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(hopYaml, []byte("config:\n  code_root: ~/code\nrepos:\n  default: []\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	t.Setenv("HOP_CONFIG", hopYaml)
+
+	repoDir := filepath.Join(home, "code", "sahil87", "hop")
+	makeRepoDir(t, repoDir)
+	canonRepo, _ := filepath.EvalSymlinks(repoDir)
+	withFakeGitRunner(t, fakeURLForDir(t, map[string]string{
+		canonRepo: "git@github.com:sahil87/hop.git",
+	}))
+
+	_, stderr, err := runArgs(t, "add", repoDir)
+	if err != nil {
+		t.Fatalf("hop add: %v", err)
+	}
+	if !strings.Contains(stderr.String(), "added: git@github.com:sahil87/hop.git") {
+		t.Errorf("missing added line; stderr=%q", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "wrote: "+hopYaml) {
+		t.Errorf("missing wrote line; stderr=%q", stderr.String())
+	}
+	got, _ := os.ReadFile(hopYaml)
+	if !strings.Contains(string(got), "git@github.com:sahil87/hop.git") {
+		t.Errorf("URL not merged into hop.yaml; got:\n%s", got)
+	}
+}
+
 func TestConfigAddGitMissingPropagates(t *testing.T) {
 	clearConfigEnv(t)
 	home := t.TempDir()

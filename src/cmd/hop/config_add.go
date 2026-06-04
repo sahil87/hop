@@ -13,11 +13,8 @@ import (
 	"github.com/sahil87/hop/internal/yamled"
 )
 
-// addCmdName is the CLI prefix used in stderr messages for `hop config add`
-// (matches scan's "hop config scan: ..." wording convention).
-const addCmdName = "hop config add"
-
-// addLong is the cobra Long help for `hop config add <dir>`.
+// addLong is the cobra Long help for `hop add <dir>` and its hidden alias
+// `hop config add <dir>`.
 const addLong = `Register a single on-disk repo into hop.yaml.
 
 The non-recursive, single-directory sibling of 'hop config scan': it classifies
@@ -30,32 +27,49 @@ Unlike scan, add writes by default — you named a specific directory.
 A non-git directory is a no-op (a clear message, exit 0), not an error.
 
 Examples:
-  hop config add ~/code/acme/widget   register one existing repo into hop.yaml`
+  hop add ~/code/acme/widget   register one existing repo into hop.yaml`
 
-// newConfigAddCmd returns the cobra factory for `hop config add <dir>`.
-func newConfigAddCmd() *cobra.Command {
-	cmd := &cobra.Command{
+// newAddCmd returns the cobra factory for the canonical top-level `hop add <dir>`.
+func newAddCmd() *cobra.Command {
+	return &cobra.Command{
 		Use:   "add <dir>",
 		Short: "register a single on-disk repo into hop.yaml",
 		Long:  addLong,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runConfigAdd(cmd, args[0])
+			return runAdd(cmd, "hop add", args[0])
 		},
 	}
-	return cmd
 }
 
-// runConfigAdd validates <dir>, resolves hop.yaml, classifies the single dir,
-// and (for a normal repo) merges its URL into hop.yaml via buildScanPlan +
-// MergeScan. Returns errSilent / *errExitCode on user-visible failures; nil on
-// success and on every forgiving no-op (non-git dir, worktree/bare skip,
-// already-registered).
-func runConfigAdd(cmd *cobra.Command, userArg string) error {
+// newConfigAddCmd returns the cobra factory for the hidden alias
+// `hop config add <dir>`. It shares runAdd with the canonical top-level command
+// but is Hidden (disappears from --help and self-filters from help-dump) and
+// keeps emitting its historical "hop config add:" stderr prefix.
+func newConfigAddCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:    "add <dir>",
+		Short:  "register a single on-disk repo into hop.yaml",
+		Long:   addLong,
+		Args:   cobra.ExactArgs(1),
+		Hidden: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runAdd(cmd, "hop config add", args[0])
+		},
+	}
+}
+
+// runAdd validates <dir>, resolves hop.yaml, classifies the single dir, and
+// (for a normal repo) merges its URL into hop.yaml via buildScanPlan +
+// MergeScan. cmdName is the per-path stderr prefix ("hop add" for the canonical
+// top-level command, "hop config add" for the hidden alias). Returns errSilent
+// / *errExitCode on user-visible failures; nil on success and on every
+// forgiving no-op (non-git dir, worktree/bare skip, already-registered).
+func runAdd(cmd *cobra.Command, cmdName, userArg string) error {
 	stderr := cmd.ErrOrStderr()
 
 	// 1. Validate <dir>: filepath.Clean → EvalSymlinks → os.Stat (directory).
-	canonicalDir, ok := validateConfigDir(userArg, addCmdName, stderr)
+	canonicalDir, ok := validateConfigDir(userArg, cmdName, stderr)
 	if !ok {
 		return &errExitCode{code: 2}
 	}
@@ -67,14 +81,14 @@ func runConfigAdd(cmd *cobra.Command, userArg string) error {
 		if werr != nil {
 			bootstrap = "$XDG_CONFIG_HOME/hop/hop.yaml"
 		}
-		fmt.Fprintf(stderr, "%s: no hop.yaml found at %s.\nRun 'hop config init' first, then re-run add.\n", addCmdName, bootstrap)
+		fmt.Fprintf(stderr, "%s: no hop.yaml found at %s.\nRun 'hop config init' first, then re-run add.\n", cmdName, bootstrap)
 		return errSilent
 	}
 
 	// 3. Load existing config (used for the convention check + dedup).
 	cfg, err := config.Load(configPath)
 	if err != nil {
-		fmt.Fprintf(stderr, "%s: %v\n", addCmdName, err)
+		fmt.Fprintf(stderr, "%s: %v\n", cmdName, err)
 		return errSilent
 	}
 
@@ -85,13 +99,13 @@ func runConfigAdd(cmd *cobra.Command, userArg string) error {
 			fmt.Fprintln(stderr, gitMissingHint)
 			return errSilent
 		}
-		fmt.Fprintf(stderr, "%s: %v\n", addCmdName, err)
+		fmt.Fprintf(stderr, "%s: %v\n", cmdName, err)
 		return errSilent
 	}
 	if !isRepo {
 		// Forgiving: plain dir (no skip reason) or a worktree/bare/no-remote
 		// candidate. Message + exit 0 (Assumptions 10/11).
-		fmt.Fprintln(stderr, addSkipMessage(userArg, skipReason))
+		fmt.Fprintln(stderr, addSkipMessage(cmdName, userArg, skipReason))
 		return nil
 	}
 
@@ -101,13 +115,13 @@ func runConfigAdd(cmd *cobra.Command, userArg string) error {
 	// 6. Idempotency: a URL already registered anywhere produces an empty plan
 	//    (buildScanPlan drops the dup). No write; report + exit 0.
 	if planIsEmpty(plan) {
-		fmt.Fprintf(stderr, "%s: %s already registered in %s. Nothing to add.\n", addCmdName, found.URL, configPath)
+		fmt.Fprintf(stderr, "%s: %s already registered in %s. Nothing to add.\n", cmdName, found.URL, configPath)
 		return nil
 	}
 
 	// 7. Write by default (Assumption 7).
 	if err := yamled.MergeScan(configPath, plan); err != nil {
-		fmt.Fprintf(stderr, "%s: write %s: %v\n", addCmdName, configPath, err)
+		fmt.Fprintf(stderr, "%s: write %s: %v\n", cmdName, configPath, err)
 		return errSilent
 	}
 	fmt.Fprintf(stderr, "added: %s\nwrote: %s\n", found.URL, configPath)
@@ -115,14 +129,14 @@ func runConfigAdd(cmd *cobra.Command, userArg string) error {
 }
 
 // addSkipMessage returns the forgiving stderr line for a dir that is not a
-// registrable normal repo. A plain directory (empty skipReason) gets the
-// explicit "not a git repo" wording; classified candidates (worktree, bare
-// repo, no remote) report their reason.
-func addSkipMessage(userArg, skipReason string) string {
+// registrable normal repo. cmdName is the per-path prefix. A plain directory
+// (empty skipReason) gets the explicit "not a git repo" wording; classified
+// candidates (worktree, bare repo, no remote) report their reason.
+func addSkipMessage(cmdName, userArg, skipReason string) string {
 	if skipReason == "" {
-		return fmt.Sprintf("%s: '%s' is not a git repo. Nothing to add.", addCmdName, userArg)
+		return fmt.Sprintf("%s: '%s' is not a git repo. Nothing to add.", cmdName, userArg)
 	}
-	return fmt.Sprintf("%s: '%s' is a %s — skipping. Nothing to add.", addCmdName, userArg, skipReason)
+	return fmt.Sprintf("%s: '%s' is a %s — skipping. Nothing to add.", cmdName, userArg, skipReason)
 }
 
 // planIsEmpty reports whether a ScanPlan would add no URLs (every candidate was

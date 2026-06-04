@@ -372,6 +372,145 @@ func TestIntegrationConfigScanWriteMode(t *testing.T) {
 	}
 }
 
+// TestIntegrationTopLevelAddRm exercises the change-mw9h promotion end-to-end
+// against a built binary: the canonical top-level `hop add <dir>` and
+// `hop rm <name>`, the surviving hidden `hop config add` / `hop config rm`
+// aliases, and help visibility (add/rm present in `hop --help`, absent from
+// `hop config --help`).
+func TestIntegrationTopLevelAddRm(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash required for fake git shim")
+	}
+	bin := buildBinary(t)
+	home := t.TempDir()
+	hopYaml := filepath.Join(home, ".config", "hop", "hop.yaml")
+	if err := os.MkdirAll(filepath.Dir(hopYaml), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	// Start with one registered repo (so `hop rm <name>` has something to drop)
+	// plus an empty default group for adds to land in.
+	code := filepath.Join(home, "code")
+	startYaml := fmt.Sprintf("config:\n  code_root: %s\nrepos:\n  default:\n    - git@github.com:sahil87/existing.git\n", code)
+	if err := os.WriteFile(hopYaml, []byte(startYaml), 0o644); err != nil {
+		t.Fatalf("write yaml: %v", err)
+	}
+
+	// Convention repo on disk for the add path.
+	addRepo := filepath.Join(code, "sahil87", "newrepo")
+	if err := os.MkdirAll(filepath.Join(addRepo, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir repo: %v", err)
+	}
+	canonAdd, _ := filepath.EvalSymlinks(addRepo)
+	binDir := writeFakeGitShim(t, map[string]string{
+		canonAdd: "git@github.com:sahil87/newrepo.git",
+	})
+	env := append(os.Environ(),
+		"HOME="+home,
+		"HOP_CONFIG="+hopYaml,
+		"PATH="+binDir+":"+os.Getenv("PATH"),
+	)
+
+	run := func(t *testing.T, args ...string) (string, string, error) {
+		t.Helper()
+		cmd := exec.Command(bin, args...)
+		cmd.Env = env
+		var stdout, stderr strings.Builder
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		err := cmd.Run()
+		return stdout.String(), stderr.String(), err
+	}
+
+	t.Run("top-level add registers a repo", func(t *testing.T) {
+		_, stderr, err := run(t, "add", addRepo)
+		if err != nil {
+			t.Fatalf("hop add: %v\nstderr: %s", err, stderr)
+		}
+		if !strings.Contains(stderr, "added: git@github.com:sahil87/newrepo.git") {
+			t.Errorf("missing added line; stderr=%q", stderr)
+		}
+		got, _ := os.ReadFile(hopYaml)
+		if !strings.Contains(string(got), "newrepo.git") {
+			t.Errorf("URL not merged; got:\n%s", got)
+		}
+	})
+
+	t.Run("top-level rm by name removes directly", func(t *testing.T) {
+		// "newrepo" uniquely substring-matches → resolveByName, no fzf.
+		_, stderr, err := run(t, "rm", "newrepo")
+		if err != nil {
+			t.Fatalf("hop rm newrepo: %v\nstderr: %s", err, stderr)
+		}
+		if !strings.Contains(stderr, "removed: git@github.com:sahil87/newrepo.git") {
+			t.Errorf("missing removed line; stderr=%q", stderr)
+		}
+		got, _ := os.ReadFile(hopYaml)
+		if strings.Contains(string(got), "newrepo.git") {
+			t.Errorf("entry not removed; got:\n%s", got)
+		}
+	})
+
+	t.Run("hidden config add alias still works", func(t *testing.T) {
+		_, stderr, err := run(t, "config", "add", addRepo)
+		if err != nil {
+			t.Fatalf("hop config add: %v\nstderr: %s", err, stderr)
+		}
+		if !strings.Contains(stderr, "added: git@github.com:sahil87/newrepo.git") {
+			t.Errorf("hidden alias missing added line; stderr=%q", stderr)
+		}
+	})
+
+	t.Run("hidden config rm alias still works", func(t *testing.T) {
+		// config rm has no positional; resolve a single-stale prune via --stale
+		// is overkill — assert the alias dispatches (it will hit the fzf path
+		// without a tty and exit non-zero, but the point is it is NOT 'unknown
+		// command'). Use --help on the alias path instead for a deterministic
+		// success: cobra renders the hidden command's own help when addressed.
+		stdout, _, err := run(t, "config", "rm", "--help")
+		if err != nil {
+			t.Fatalf("hop config rm --help: %v", err)
+		}
+		if !strings.Contains(stdout, "Remove a registered repo from hop.yaml") {
+			t.Errorf("hidden `config rm` not addressable; help=%q", stdout)
+		}
+	})
+
+	t.Run("add and rm appear in hop --help", func(t *testing.T) {
+		stdout, _, err := run(t, "--help")
+		if err != nil {
+			t.Fatalf("hop --help: %v", err)
+		}
+		for _, want := range []string{"hop add <dir>", "hop rm [<name>]"} {
+			if !strings.Contains(stdout, want) {
+				t.Errorf("expected %q in hop --help usage table; got:\n%s", want, stdout)
+			}
+		}
+		// The top-level subcommand listing should advertise add/rm Shorts.
+		if !strings.Contains(stdout, "register a single on-disk repo into hop.yaml") {
+			t.Errorf("expected top-level `add` Short in hop --help; got:\n%s", stdout)
+		}
+	})
+
+	t.Run("add and rm absent from hop config --help", func(t *testing.T) {
+		stdout, _, err := run(t, "config", "--help")
+		if err != nil {
+			t.Fatalf("hop config --help: %v", err)
+		}
+		// The hidden aliases must not be listed in the config subcommand table.
+		// Match on a config-help-only marker plus absence of the add/rm Shorts.
+		if strings.Contains(stdout, "register a single on-disk repo into hop.yaml") {
+			t.Errorf("hidden `config add` leaked into config --help; got:\n%s", stdout)
+		}
+		if strings.Contains(stdout, "remove a registered repo from hop.yaml via an interactive picker") {
+			t.Errorf("hidden `config rm` leaked into config --help; got:\n%s", stdout)
+		}
+		// Sanity: a still-visible config subcommand IS present.
+		if !strings.Contains(stdout, "scan a directory for git repos and populate hop.yaml") {
+			t.Errorf("expected visible `config scan` Short; got:\n%s", stdout)
+		}
+	})
+}
+
 // TestIntegrationShellInitBashSourceable spawns a real bash, evals the
 // shim script emitted by `hop shell-init bash`, and exercises one dispatch
 // path (bare-name resolution via `command hop where`). This catches syntax,

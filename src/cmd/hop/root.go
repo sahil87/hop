@@ -40,6 +40,8 @@ Cheat sheet:
   hop sync --all            Run sync in every cloned repo
   hop ls                    list all repos
   hop ls --trees            list all repos with worktree summaries (fans out ` + "`wt list --json`" + `)
+  hop add <dir>             register an existing on-disk repo into hop.yaml
+  hop rm [<name>]           remove a repo from hop.yaml (fzf picker if no name)
   hop shell-init <shell>    emit shell integration (zsh or bash). Use: eval "$(hop shell-init zsh)"
   hop config init           bootstrap a starter hop.yaml
   hop config where          print the resolved hop.yaml path
@@ -121,6 +123,8 @@ func newRootCmd() *cobra.Command {
 	}
 
 	cmd.AddCommand(
+		newAddCmd(),
+		newRmCmd(),
 		newCloneCmd(),
 		newPullCmd(),
 		newPushCmd(),

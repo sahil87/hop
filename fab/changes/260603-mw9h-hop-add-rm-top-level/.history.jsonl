@@ -1,0 +1,26 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-06-03T14:17:49Z"}
+{"args":"Make hop add and hop rm top level commands (instead of hop config add and hop config rm)","cmd":"fab-new","event":"command","ts":"2026-06-03T14:17:49Z"}
+{"delta":"+0.0","event":"confidence","score":0,"trigger":"calc-score","ts":"2026-06-03T14:19:17Z"}
+{"delta":"+0.0","event":"confidence","score":0,"trigger":"calc-score","ts":"2026-06-03T14:19:25Z"}
+{"cmd":"fab-clarify","event":"command","ts":"2026-06-03T14:23:33Z"}
+{"delta":"+0.0","event":"confidence","score":0,"trigger":"calc-score","ts":"2026-06-03T14:36:10Z"}
+{"delta":"+0.5","event":"confidence","score":0.5,"trigger":"calc-score","ts":"2026-06-03T14:36:17Z"}
+{"delta":"+3.0","event":"confidence","score":3.5,"trigger":"calc-score","ts":"2026-06-03T14:36:26Z"}
+{"delta":"+0.0","event":"confidence","score":3.5,"trigger":"calc-score","ts":"2026-06-03T14:36:51Z"}
+{"delta":"+0.0","event":"confidence","score":3.5,"trigger":"calc-score","ts":"2026-06-03T14:36:56Z"}
+{"delta":"+0.0","event":"confidence","score":3.5,"trigger":"calc-score","ts":"2026-06-03T14:37:00Z"}
+{"delta":"+1.2","event":"confidence","score":4.7,"trigger":"calc-score","ts":"2026-06-03T14:37:34Z"}
+{"delta":"+0.3","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-06-03T14:37:40Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-06-03T14:37:45Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-06-03T14:37:49Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-06-03T14:37:52Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-06-03T14:38:04Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-06-03T14:38:18Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-06-03T14:40:11Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-06-03T14:48:17Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-06-03T14:52:47Z"}
+{"event":"review","result":"passed","ts":"2026-06-03T14:52:47Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-06-03T14:59:45Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-06-03T15:00:43Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-06-03T15:02:00Z"}
+{"event":"review","result":"passed","ts":"2026-06-03T15:08:54Z"}

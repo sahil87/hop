@@ -591,14 +591,20 @@ func TestConfigSubcommandsListedUnderConfigHelp(t *testing.T) {
 		"bootstrap a starter hop.yaml",                         // init
 		"print the resolved hop.yaml path",                     // where
 		"scan a directory for git repos and populate hop.yaml", // scan
-		"register a single on-disk repo into hop.yaml",         // add
-		"remove a registered repo from hop.yaml",               // rm
 		"print the resolved hop.yaml contents to stdout",       // print
 	}
 	for _, line := range wants {
 		if !strings.Contains(gotOut, line) {
 			t.Errorf("expected %q in config --help; got:\n%s", line, gotOut)
 		}
+	}
+	// `add` and `rm` are now hidden aliases under config (change mw9h promoted
+	// them to top-level). They MUST NOT appear in `config --help`.
+	if strings.Contains(gotOut, "register a single on-disk repo into hop.yaml") {
+		t.Errorf("hidden alias `config add` Short leaked into config --help; got:\n%s", gotOut)
+	}
+	if strings.Contains(gotOut, "remove a registered repo from hop.yaml") {
+		t.Errorf("hidden alias `config rm` Short leaked into config --help; got:\n%s", gotOut)
 	}
 }
 

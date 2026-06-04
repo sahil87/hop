@@ -170,6 +170,41 @@ func TestCompletionRootFiltersSubcommandCollisions(t *testing.T) {
 	}
 }
 
+// TestCompletionRootFiltersAddRmCollisions asserts that after change mw9h
+// promoted `add` and `rm` to top-level subcommands, the dynamically-built
+// subNames collision filter (in completeRepoNames, built from cmd.Commands())
+// picks them up automatically — a repo literally named `add` or `rm` is dropped
+// from bare-name root completion (it resolves to the subcommand). No production
+// code change was needed; this guards R13.
+func TestCompletionRootFiltersAddRmCollisions(t *testing.T) {
+	writeReposFixture(t, `repos:
+  default:
+    dir: /tmp/test-addrm-collision
+    urls:
+      - git@github.com:sahil87/alpha.git
+      - git@github.com:sahil87/add.git
+      - git@github.com:sahil87/rm.git
+`)
+
+	stdout, _, err := runArgs(t, cobra.ShellCompRequestCmd, "")
+	if err != nil {
+		t.Fatalf("__complete: %v", err)
+	}
+	bare := candidatesFrom(stdout.String())
+	var foundAlpha bool
+	for _, c := range bare {
+		switch c {
+		case "alpha":
+			foundAlpha = true
+		case "add", "rm":
+			t.Fatalf("expected colliding subcommand name %q filtered from root completion; got: %v", c, bare)
+		}
+	}
+	if !foundAlpha {
+		t.Fatalf("expected non-colliding 'alpha' in candidates, got: %v", bare)
+	}
+}
+
 // TestCompletionRootSurfacesRepoNamedWhereOrCd asserts that since the `hop where`
 // and `hop cd` subcommands were removed (replaced by the $2-verb grammar), repos
 // named `where` or `cd` are no longer filtered from root completion. Guards

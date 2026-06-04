@@ -22,7 +22,7 @@ Flags:
 
 ## Argument validation
 
-The single positional `<dir>` is normalized in this order before any further processing, via the shared `config_scan.go::validateConfigDir(userArg, cmdName, stderr)` helper (also called by `config add` — see [the single-dir sibling note](#hop-config-add-the-single-dir-sibling)):
+The single positional `<dir>` is normalized in this order before any further processing, via the shared `config_scan.go::validateConfigDir(userArg, cmdName, stderr)` helper (also called by `hop add` — see [the single-dir sibling note](#hop-add-the-single-dir-sibling)):
 
 1. `filepath.Clean(<dir>)`
 2. `filepath.EvalSymlinks(<cleaned>)` — resolves symlinks. Failure (including ENOENT) → usage error.
@@ -229,16 +229,16 @@ type InventedGroup struct {
 
 `MergeScan` writes; `RenderScan` returns the bytes that `MergeScan` would write. Both share `mergeScanIntoTree` internally.
 
-## `hop config add`: the single-dir sibling
+## `hop add`: the single-dir sibling
 
-`hop config add <dir>` (`src/cmd/hop/config_add.go`) is the **single-dir, non-recursive** counterpart to scan — the inverse granularity (one named dir, no DFS, no `--depth`). It exists to register one already-on-disk repo without scanning its whole parent tree. It deliberately shares scan's machinery rather than reimplementing it:
+`hop add <dir>` (`src/cmd/hop/config_add.go`) is the **single-dir, non-recursive** counterpart to scan — the inverse granularity (one named dir, no DFS, no `--depth`). It exists to register one already-on-disk repo without scanning its whole parent tree. (`hop add` is the canonical top-level command; `hop config add` is its hidden alias sharing the same `runAdd` body — see [cli/subcommands § Migration: hidden config aliases](../cli/subcommands.md#migration-hidden-config-aliases).) It deliberately shares scan's machinery rather than reimplementing it:
 
-- **Dir validation**: the same `validateConfigDir` helper documented under [Argument validation](#argument-validation) (`cmdName` = `"hop config add"`).
+- **Dir validation**: the same `validateConfigDir` helper documented under [Argument validation](#argument-validation) (`cmdName` is the per-path prefix `"hop add"` / `"hop config add"`).
 - **`hop.yaml` precondition**: the same missing-config two-line message style, pointing at `hop config init`. Missing → exit 1.
-- **Classification**: instead of `scan.Walk`, `config add` calls the exported single-dir entry point **`scan.ClassifyOne(ctx, canonicalDir, opts) (Found, skipReason string, isRepo bool, err error)`**. `ClassifyOne` wraps the *same* unexported `classifyDir` + `inspectRepo` logic that `Walk` applies per directory (first-match-wins worktree/normal-repo/bare-repo, then `git remote` + `git remote get-url`) — without the DFS scaffolding. It is the smallest exported seam: it does not leak the private `dirClass` enum and it folds in the remote-inspection step the CLI needs (see [package-layout](../architecture/package-layout.md#internalscan) for the exported-seam rationale).
+- **Classification**: instead of `scan.Walk`, `add` calls the exported single-dir entry point **`scan.ClassifyOne(ctx, canonicalDir, opts) (Found, skipReason string, isRepo bool, err error)`**. `ClassifyOne` wraps the *same* unexported `classifyDir` + `inspectRepo` logic that `Walk` applies per directory (first-match-wins worktree/normal-repo/bare-repo, then `git remote` + `git remote get-url`) — without the DFS scaffolding. It is the smallest exported seam: it does not leak the private `dirClass` enum and it folds in the remote-inspection step the CLI needs (see [package-layout](../architecture/package-layout.md#internalscan) for the exported-seam rationale).
 - **Group assignment + write**: a one-element `[]scan.Found` is fed to the *same* `buildScanPlan` (convention → `default`; else invented group from the slugified parent-dir basename) and applied via the *same* `yamled.MergeScan`. Unlike scan, `add` **writes by default** (no print mode) — the user named a specific directory, so printing would be odd.
 
-Forgiving by design (matches `clone`'s no-op tone): a plain non-git dir, a worktree/bare/no-remote candidate, and an already-registered URL (deduped to an empty plan) are all **no-ops at exit 0** with a stderr message (`hop config add: '<dir>' is not a git repo. Nothing to add.` / `... is a <reason> — skipping.` / `<url> already registered in <path>. Nothing to add.`). A successful add emits `added: <url>` + `wrote: <path>`. See the [cli/subcommands](../cli/subcommands.md) inventory row for the full exit-code matrix.
+Forgiving by design (matches `clone`'s no-op tone): a plain non-git dir, a worktree/bare/no-remote candidate, and an already-registered URL (deduped to an empty plan) are all **no-ops at exit 0** with a stderr message (`hop add: '<dir>' is not a git repo. Nothing to add.` / `... is a <reason> — skipping.` / `<url> already registered in <path>. Nothing to add.` — prefixed `hop config add:` when invoked via the hidden alias). A successful add emits `added: <url>` + `wrote: <path>`. See the [cli/subcommands](../cli/subcommands.md) inventory row for the full exit-code matrix.
 
 ## Exit codes
 
@@ -260,4 +260,4 @@ No other external tools are required by scan.
 - YAML schema and group regex `^[a-z][a-z0-9_-]*$` that slugify must conform to: [yaml-schema](yaml-schema.md)
 - `internal/scan` package role and `Walk`/`ClassifyOne`/`Found`/`Skip`/`Options` public surface: [architecture/package-layout](../architecture/package-layout.md)
 - Constitution I compliance: `internal/scan` invokes `git` only via `internal/proc.RunCapture`: [architecture/wrapper-boundaries](../architecture/wrapper-boundaries.md)
-- `hop config add` (the single-dir sibling) and `hop config rm [--stale]` (interactive removal via `yamled.RemoveURL`) full behavior + exit codes: [cli/subcommands](../cli/subcommands.md)
+- `hop add` (the single-dir sibling, canonical; `hop config add` is its hidden alias) and `hop rm [<name>]` (fzf picker, or direct `resolveByName` + `yamled.RemoveURL` for the positional; `hop config rm` is the hidden picker-only alias) full behavior + exit codes: [cli/subcommands](../cli/subcommands.md)
