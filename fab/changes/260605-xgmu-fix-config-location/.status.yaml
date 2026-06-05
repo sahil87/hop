@@ -1,0 +1,35 @@
+id: xgmu
+name: 260605-xgmu-fix-config-location
+created: 2026-06-05T06:40:22Z
+created_by: sahil-noon
+change_type: fix
+issues: []
+progress:
+    intake: ready
+    apply: pending
+    review: pending
+    hydrate: pending
+    ship: pending
+    review-pr: pending
+plan:
+    generated: false
+    task_count: 0
+    acceptance_count: 0
+    acceptance_completed: 0
+confidence:
+    certain: 10
+    confident: 0
+    tentative: 0
+    unresolved: 0
+    score: 5.0
+    fuzzy: true
+    dimensions:
+        signal: 95.1
+        reversibility: 76.5
+        competence: 85.5
+        disambiguation: 81.0
+stage_metrics:
+    intake: {started_at: "2026-06-05T06:40:22Z", driver: fab-new, iterations: 1}
+prs: []
+# true_impact: lazily created on first apply-finish (no placeholder here).
+last_updated: 2026-06-05T07:03:40Z

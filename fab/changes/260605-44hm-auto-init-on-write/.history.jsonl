@@ -1,0 +1,13 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-06-05T06:42:03Z"}
+{"args":"feat: auto-init hop.yaml on write-commands (add, scan --write, clone url) when config absent, instead of erroring","cmd":"fab-new","event":"command","ts":"2026-06-05T06:42:03Z"}
+{"delta":"+1.4","event":"confidence","score":1.4,"trigger":"calc-score","ts":"2026-06-05T06:43:21Z"}
+{"delta":"+0.0","event":"confidence","score":1.4,"trigger":"calc-score","ts":"2026-06-05T06:43:26Z"}
+{"delta":"+0.0","event":"confidence","score":1.4,"trigger":"calc-score","ts":"2026-06-05T07:05:38Z"}
+{"delta":"+0.0","event":"confidence","score":1.4,"trigger":"calc-score","ts":"2026-06-05T07:05:49Z"}
+{"delta":"+0.0","event":"confidence","score":1.4,"trigger":"calc-score","ts":"2026-06-05T07:05:52Z"}
+{"cmd":"fab-clarify","event":"command","ts":"2026-06-05T07:06:50Z"}
+{"delta":"+1.0","event":"confidence","score":2.4,"trigger":"calc-score","ts":"2026-06-05T07:07:43Z"}
+{"delta":"+1.0","event":"confidence","score":3.4,"trigger":"calc-score","ts":"2026-06-05T07:13:01Z"}
+{"delta":"+1.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-06-05T07:15:08Z"}
+{"delta":"+0.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-06-05T07:15:14Z"}
+{"delta":"+0.0","event":"confidence","score":4.4,"trigger":"calc-score","ts":"2026-06-05T07:15:17Z"}
