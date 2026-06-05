@@ -50,7 +50,7 @@ func runConfigScan(cmd *cobra.Command, userArg string, depth int, write bool) er
 		return &errExitCode{code: 2}
 	}
 
-	// 2. Validate <dir>: filepath.Clean → EvalSymlinks → os.Stat (directory).
+	// 2. Validate <dir>: filepath.Abs → EvalSymlinks → os.Stat (directory).
 	canonicalDir, ok := validateConfigDir(userArg, scanCmdName, stderr)
 	if !ok {
 		return &errExitCode{code: 2}
@@ -142,12 +142,22 @@ var gitRunner scan.GitRunner = func(ctx context.Context, dir string, args ...str
 
 // validateConfigDir applies the directory-argument validation order shared by
 // `config scan` and `config add` (spec § "Argument validation"):
-// filepath.Clean → filepath.EvalSymlinks → os.Stat (must be directory). On any
+// filepath.Abs → filepath.EvalSymlinks → os.Stat (must be directory). On any
 // failure, emits the not-a-directory message (with userArg verbatim, prefixed
 // by the caller's cmdName) and returns ok=false so the caller can exit 2.
+//
+// filepath.Abs joins a relative argument with the process CWD (and runs Clean),
+// so the returned canonical path is always absolute. This is what lets a bare
+// relative name (e.g. `hop add fab-kit` from its parent dir) flow downstream
+// with an absolute Found.Path — without it, EvalSymlinks preserves a relative
+// input as relative and group derivation / convention matching break.
 func validateConfigDir(userArg, cmdName string, stderr io.Writer) (canonical string, ok bool) {
-	cleaned := filepath.Clean(userArg)
-	resolved, err := filepath.EvalSymlinks(cleaned)
+	abs, err := filepath.Abs(userArg)
+	if err != nil {
+		fmt.Fprintf(stderr, "%s: '%s' is not a directory.\n", cmdName, userArg)
+		return "", false
+	}
+	resolved, err := filepath.EvalSymlinks(abs)
 	if err != nil {
 		fmt.Fprintf(stderr, "%s: '%s' is not a directory.\n", cmdName, userArg)
 		return "", false
