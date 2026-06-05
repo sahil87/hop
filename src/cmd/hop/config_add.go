@@ -79,7 +79,7 @@ func runAdd(cmd *cobra.Command, cmdName, userArg string) error {
 	if err != nil {
 		bootstrap, werr := config.ResolveWriteTarget()
 		if werr != nil {
-			bootstrap = "$XDG_CONFIG_HOME/hop/hop.yaml"
+			bootstrap = "~/.config/hop/hop.yaml"
 		}
 		fmt.Fprintf(stderr, "%s: no hop.yaml found at %s.\nRun 'hop config init' first, then re-run add.\n", cmdName, bootstrap)
 		return errSilent

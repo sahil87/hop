@@ -14,10 +14,9 @@ import (
 )
 
 func TestConfigInitWritesStarter(t *testing.T) {
-	clearConfigEnv(t)
-	dir := t.TempDir()
-	target := filepath.Join(dir, "hop.yaml")
-	t.Setenv("HOP_CONFIG", target)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	target := filepath.Join(home, ".config", "hop", "hop.yaml")
 
 	stdout, stderr, err := runArgs(t, "config", "init")
 	if err != nil {
@@ -27,10 +26,10 @@ func TestConfigInitWritesStarter(t *testing.T) {
 		t.Fatalf("expected 'Created %s' on stdout, got %q", target, stdout.String())
 	}
 
-	// T008: verify the post-init stderr tip is the new two-line wording.
+	// Verify the post-init stderr tip is the new two-line wording.
 	stderrStr := stderr.String()
 	wantLine1 := "Edit the file to add your repos, or run `hop config scan <dir>` to populate from existing on-disk repos."
-	wantLine2 := "Tip: set $HOP_CONFIG in your shell rc to point at a version-tracked location (a git-tracked dotfile, Dropbox, etc.) so this config moves with you across machines."
+	wantLine2 := "Tip: to sync this config across machines, keep it in your dotfiles and symlink ~/.config/hop/hop.yaml to it."
 	if !strings.Contains(stderrStr, wantLine1) {
 		t.Errorf("init tip line 1 mismatch.\nwant: %q\ngot: %q", wantLine1, stderrStr)
 	}
@@ -48,13 +47,15 @@ func TestConfigInitWritesStarter(t *testing.T) {
 }
 
 func TestConfigInitRefusesOverwrite(t *testing.T) {
-	clearConfigEnv(t)
-	dir := t.TempDir()
-	target := filepath.Join(dir, "hop.yaml")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	target := filepath.Join(home, ".config", "hop", "hop.yaml")
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
 	if err := os.WriteFile(target, []byte("existing\n"), 0o644); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
-	t.Setenv("HOP_CONFIG", target)
 
 	_, _, err := runArgs(t, "config", "init")
 	if err == nil {
@@ -66,10 +67,9 @@ func TestConfigInitRefusesOverwrite(t *testing.T) {
 }
 
 func TestConfigWherePrintsResolvedPath(t *testing.T) {
-	clearConfigEnv(t)
-	dir := t.TempDir()
-	target := filepath.Join(dir, "hop.yaml")
-	t.Setenv("HOP_CONFIG", target)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	target := filepath.Join(home, ".config", "hop", "hop.yaml")
 
 	stdout, _, err := runArgs(t, "config", "where")
 	if err != nil {
@@ -81,23 +81,25 @@ func TestConfigWherePrintsResolvedPath(t *testing.T) {
 }
 
 func TestConfigWhereDoesNotErrorOnMissingFile(t *testing.T) {
-	clearConfigEnv(t)
-	missing := "/tmp/no-such-file-xyz123.yaml"
-	t.Setenv("HOP_CONFIG", missing)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	// No file written — `where` must still print the fixed path regardless of
+	// existence (no stat).
+	want := filepath.Join(home, ".config", "hop", "hop.yaml")
 
 	stdout, _, err := runArgs(t, "config", "where")
 	if err != nil {
 		t.Fatalf("config where on missing file: %v", err)
 	}
-	if got := strings.TrimSpace(stdout.String()); got != missing {
-		t.Fatalf("expected %q, got %q", missing, got)
+	if got := strings.TrimSpace(stdout.String()); got != want {
+		t.Fatalf("expected %q, got %q", want, got)
 	}
 }
 
 func TestConfigPathSubcommandRemoved(t *testing.T) {
-	clearConfigEnv(t)
-	target := "/tmp/whatever-test-xyz.yaml"
-	t.Setenv("HOP_CONFIG", target)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	target := filepath.Join(home, ".config", "hop", "hop.yaml")
 	stdout, _, _ := runArgs(t, "config", "path")
 	// The old handler would have printed the resolved write target on stdout.
 	// We assert the new behavior: stdout MUST NOT be just the resolved path.
@@ -148,10 +150,10 @@ func fakeURLForDir(t *testing.T, urlByDir map[string]string) scan.GitRunner {
 }
 
 func TestConfigScanMissingHopYaml(t *testing.T) {
-	clearConfigEnv(t)
-	dir := t.TempDir()
-	missing := filepath.Join(dir, "no-such-hop.yaml")
-	t.Setenv("HOP_CONFIG", missing)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	// No config file written — the fixed path does not exist.
+	missing := filepath.Join(home, ".config", "hop", "hop.yaml")
 
 	scanRoot := t.TempDir()
 	_, stderr, err := runArgs(t, "config", "scan", scanRoot)
@@ -168,14 +170,9 @@ func TestConfigScanMissingHopYaml(t *testing.T) {
 }
 
 func TestConfigScanDirNotADirectory(t *testing.T) {
-	dir := t.TempDir()
-	yaml := filepath.Join(dir, "hop.yaml")
-	if err := os.WriteFile(yaml, []byte("repos:\n  default: []\n"), 0o644); err != nil {
-		t.Fatalf("setup: %v", err)
-	}
-	t.Setenv("HOP_CONFIG", yaml)
+	writeReposFixture(t, "repos:\n  default: []\n")
 
-	notADir := filepath.Join(dir, "notadir.txt")
+	notADir := filepath.Join(t.TempDir(), "notadir.txt")
 	if err := os.WriteFile(notADir, []byte("hi"), 0o644); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
@@ -192,12 +189,7 @@ func TestConfigScanDirNotADirectory(t *testing.T) {
 }
 
 func TestConfigScanDirDoesNotExist(t *testing.T) {
-	dir := t.TempDir()
-	yaml := filepath.Join(dir, "hop.yaml")
-	if err := os.WriteFile(yaml, []byte("repos:\n  default: []\n"), 0o644); err != nil {
-		t.Fatalf("setup: %v", err)
-	}
-	t.Setenv("HOP_CONFIG", yaml)
+	writeReposFixture(t, "repos:\n  default: []\n")
 
 	missing := "/no/such/path-test-xyz"
 	_, stderr, err := runArgs(t, "config", "scan", missing)
@@ -212,12 +204,7 @@ func TestConfigScanDirDoesNotExist(t *testing.T) {
 }
 
 func TestConfigScanInvalidDepth(t *testing.T) {
-	dir := t.TempDir()
-	yaml := filepath.Join(dir, "hop.yaml")
-	if err := os.WriteFile(yaml, []byte("repos:\n  default: []\n"), 0o644); err != nil {
-		t.Fatalf("setup: %v", err)
-	}
-	t.Setenv("HOP_CONFIG", yaml)
+	writeReposFixture(t, "repos:\n  default: []\n")
 
 	scanRoot := t.TempDir()
 	_, stderr, err := runArgs(t, "config", "scan", scanRoot, "--depth", "0")
@@ -231,13 +218,7 @@ func TestConfigScanInvalidDepth(t *testing.T) {
 }
 
 func TestConfigScanZeroReposPrintMode(t *testing.T) {
-	dir := t.TempDir()
-	yaml := filepath.Join(dir, "hop.yaml")
-	original := "repos:\n  default: []\n"
-	if err := os.WriteFile(yaml, []byte(original), 0o644); err != nil {
-		t.Fatalf("setup: %v", err)
-	}
-	t.Setenv("HOP_CONFIG", yaml)
+	writeReposFixture(t, "repos:\n  default: []\n")
 
 	withFakeGitRunner(t, fakeURLForDir(t, map[string]string{}))
 
@@ -274,7 +255,6 @@ func TestConfigScanConventionMatchPrintMode(t *testing.T) {
 	if err := os.WriteFile(hopYaml, []byte(original), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	t.Setenv("HOP_CONFIG", hopYaml)
 
 	scanRoot := filepath.Join(home, "code")
 	repoDir := filepath.Join(scanRoot, "sahil87", "hop")
@@ -321,7 +301,6 @@ func TestConfigScanNonConventionInventsGroup(t *testing.T) {
 	if err := os.WriteFile(hopYaml, []byte(original), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	t.Setenv("HOP_CONFIG", hopYaml)
 
 	// repo at ~/vendor/forks/hop — non-convention.
 	repoDir := filepath.Join(home, "vendor", "forks", "hop")
@@ -361,7 +340,6 @@ func TestConfigScanWriteMode(t *testing.T) {
 	if err := os.WriteFile(hopYaml, []byte(original), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	t.Setenv("HOP_CONFIG", hopYaml)
 
 	repoDir := filepath.Join(home, "code", "sahil87", "hop")
 	makeRepoDir(t, repoDir)
@@ -401,7 +379,6 @@ func TestConfigScanGitMissingPropagates(t *testing.T) {
 	if err := os.WriteFile(hopYaml, []byte("repos:\n  default: []\n"), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	t.Setenv("HOP_CONFIG", hopYaml)
 
 	repoDir := filepath.Join(home, "code", "owner", "x")
 	makeRepoDir(t, repoDir)
@@ -421,9 +398,9 @@ func TestConfigScanGitMissingPropagates(t *testing.T) {
 
 func TestSlugifyGroupName(t *testing.T) {
 	cases := []struct {
-		in        string
-		want      string
-		wantOK    bool
+		in     string
+		want   string
+		wantOK bool
 	}{
 		{"forks", "forks", true},
 		{"My Stuff!", "my-stuff", true},
@@ -455,7 +432,6 @@ func TestConfigScanSlugifyEmptySkipsGracefully(t *testing.T) {
 	if err := os.WriteFile(hopYaml, []byte("config:\n  code_root: ~/code\nrepos:\n  default: []\n"), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	t.Setenv("HOP_CONFIG", hopYaml)
 
 	// Pathological parent base: all underscores → slug empty after trim.
 	pathological := filepath.Join(home, "elsewhere", "___", "hop")
@@ -497,7 +473,6 @@ repos:
 	if err := os.WriteFile(hopYaml, []byte(original), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	t.Setenv("HOP_CONFIG", hopYaml)
 
 	// Make the existing dir resolvable so EvalSymlinks succeeds in
 	// canonicalForCompare.
@@ -537,7 +512,6 @@ func TestConfigScanHeaderUTCFormat(t *testing.T) {
 	if err := os.WriteFile(hopYaml, []byte("repos:\n  default: []\n"), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	t.Setenv("HOP_CONFIG", hopYaml)
 
 	scanRoot := t.TempDir()
 	withFakeGitRunner(t, fakeURLForDir(t, map[string]string{}))
@@ -558,13 +532,7 @@ func TestConfigScanHeaderUTCFormat(t *testing.T) {
 }
 
 func TestConfigScanRequiresExactlyOneArg(t *testing.T) {
-	clearConfigEnv(t)
-	dir := t.TempDir()
-	yaml := filepath.Join(dir, "hop.yaml")
-	if err := os.WriteFile(yaml, []byte("repos:\n  default: []\n"), 0o644); err != nil {
-		t.Fatalf("setup: %v", err)
-	}
-	t.Setenv("HOP_CONFIG", yaml)
+	writeReposFixture(t, "repos:\n  default: []\n")
 
 	// No positional → cobra ExactArgs(1) error (cobra returns its own error;
 	// runArgs returns it without translateExit applied, so we just check err
@@ -611,16 +579,10 @@ func TestConfigSubcommandsListedUnderConfigHelp(t *testing.T) {
 // --- config print tests ---------------------------------------------------
 
 func TestConfigPrintEmitsFileBytes(t *testing.T) {
-	clearConfigEnv(t)
-	dir := t.TempDir()
-	target := filepath.Join(dir, "hop.yaml")
 	// Fixture exercises comment preservation and inline whitespace — the raw-
 	// bytes contract means stdout must equal these bytes exactly.
 	body := "# top comment\nconfig:\n  code_root: ~/code  # inline comment\nrepos:\n  default:\n    - git@github.com:foo/bar.git\n"
-	if err := os.WriteFile(target, []byte(body), 0o644); err != nil {
-		t.Fatalf("write fixture: %v", err)
-	}
-	t.Setenv("HOP_CONFIG", target)
+	writeReposFixture(t, body)
 
 	stdout, stderr, err := runArgs(t, "config", "print")
 	if err != nil {
@@ -634,29 +596,9 @@ func TestConfigPrintEmitsFileBytes(t *testing.T) {
 	}
 }
 
-func TestConfigPrintMissingFileErrors(t *testing.T) {
-	clearConfigEnv(t)
-	missing := "/tmp/no-such-print-test-xyz123.yaml"
-	t.Setenv("HOP_CONFIG", missing)
-
-	_, _, err := runArgs(t, "config", "print")
-	if err == nil {
-		t.Fatalf("expected error for missing $HOP_CONFIG file, got nil")
-	}
-	msg := err.Error()
-	if !strings.Contains(msg, "points to "+missing) {
-		t.Errorf("expected error to mention %q (HOP_CONFIG path); got %q", missing, msg)
-	}
-	if !strings.Contains(msg, "does not exist") {
-		t.Errorf("expected 'does not exist' in error; got %q", msg)
-	}
-}
-
 func TestConfigPrintNoConfigErrors(t *testing.T) {
-	clearConfigEnv(t)
-	// Isolate $HOME so the search-order fallback does NOT find a real
-	// ~/.config/hop/hop.yaml on the developer's machine. clearConfigEnv has
-	// already unset HOP_CONFIG and XDG_CONFIG_HOME.
+	// Isolate $HOME so the fixed path does NOT resolve to a real
+	// ~/.config/hop/hop.yaml on the developer's machine.
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 

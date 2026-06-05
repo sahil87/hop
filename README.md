@@ -8,7 +8,7 @@ A small Go CLI that turns one config file (`hop.yaml`) into a personal directory
 
 ## Why hop?
 
-- **One config, every machine** — `hop.yaml` lists every repo you care about (with groups). Drop it in Dropbox, dotfiles, or `$HOP_CONFIG`, and your repo directory follows you between laptops.
+- **One config, every machine** — `hop.yaml` lives at `~/.config/hop/hop.yaml` and lists every repo you care about (with groups). Keep it in your dotfiles and symlink that path to it, and your repo directory follows you between laptops.
 - **Substring navigation** — `h ou<TAB>` or `hop ou` matches `outbox` and `cd`s your shell straight there. No more `cd ~/code/sahil87/outbox`.
 - **Run anything inside a repo, from anywhere** — `hop dotfiles cursor` opens your dotfiles in Cursor without changing your cwd. Works for any tool: `hop outbox git status`, `hop infra-tf terraform plan`, `hop loom npm test`.
 - **Batch git ops over groups** — `hop pull --all` pulls every cloned repo. `hop sync work` rebases-and-pushes every repo in the `work` group. Group-level fan-out built in.
@@ -98,7 +98,7 @@ hop config init
 hop config where   # show where it lives
 ```
 
-By default the file lives at `$XDG_CONFIG_HOME/hop/hop.yaml` (or `~/.config/hop/hop.yaml`). Set `$HOP_CONFIG` in your shell rc to point at a tracked location (Dropbox, a git-tracked dotfile, etc.) so the config moves with you.
+The file lives at `~/.config/hop/hop.yaml`. To sync it across machines, keep it in your dotfiles and symlink that path to it.
 
 If you already have repos cloned somewhere, let hop discover them:
 

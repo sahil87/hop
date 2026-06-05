@@ -30,7 +30,7 @@ src/
 └── internal/
     ├── config/                   # YAML schema, search order, embedded starter
     │   ├── config.go             # yaml.Node-based loader, group validation, URL uniqueness
-    │   ├── resolve.go            # $HOP_CONFIG search order
+    │   ├── resolve.go            # single fixed config path ($HOME/.config/hop/hop.yaml)
     │   ├── starter.yaml          # //go:embed (grouped form)
     │   ├── *_test.go
     │   └── testdata/             # valid + invalid fixtures (mixed shapes, bad names, dup URLs, etc.)

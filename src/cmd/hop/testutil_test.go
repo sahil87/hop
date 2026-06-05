@@ -11,9 +11,9 @@ import (
 	"github.com/sahil87/hop/internal/config"
 )
 
-// loadConfigForTest resolves $HOP_CONFIG via config.Resolve and parses it via
-// config.Load, fataling on failure. Used by tests that need direct access to
-// the parsed *config.Config (e.g., to exercise group-name predicates).
+// loadConfigForTest resolves the fixed config path via config.Resolve and
+// parses it via config.Load, fataling on failure. Used by tests that need direct
+// access to the parsed *config.Config (e.g., to exercise group-name predicates).
 func loadConfigForTest(t *testing.T) *config.Config {
 	t.Helper()
 	path, err := config.Resolve()
@@ -55,29 +55,26 @@ func runCmd(t *testing.T, factory func() *cobra.Command, args ...string) (stdout
 	return stdout, stderr, err
 }
 
-// writeReposFixture writes a hop.yaml under t.TempDir() and points $HOP_CONFIG at it.
-// Returns the full path. yamlBody is written verbatim. Also clears legacy env vars
-// so tests are deterministic.
+// writeReposFixture writes a hop.yaml at the fixed config path under an isolated
+// $HOME (t.TempDir()) and points hop at it by overriding $HOME. Returns the full
+// path (<home>/.config/hop/hop.yaml). yamlBody is written verbatim.
 func writeReposFixture(t *testing.T, yamlBody string) string {
 	t.Helper()
-	dir := t.TempDir()
-	path := filepath.Join(dir, "hop.yaml")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	path := filepath.Join(home, ".config", "hop", "hop.yaml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir fixture dir: %v", err)
+	}
 	if err := os.WriteFile(path, []byte(yamlBody), 0o644); err != nil {
 		t.Fatalf("write fixture: %v", err)
 	}
-	t.Setenv("HOP_CONFIG", path)
-	t.Setenv("XDG_CONFIG_HOME", "")
-	t.Setenv("REPOS_YAML", "")
-	os.Unsetenv("XDG_CONFIG_HOME")
-	os.Unsetenv("REPOS_YAML")
 	return path
 }
 
-// clearConfigEnv unsets all config env vars.
+// clearConfigEnv isolates $HOME to an empty temp dir so the fixed config path
+// does not resolve to a real ~/.config/hop/hop.yaml on the developer's machine.
 func clearConfigEnv(t *testing.T) {
 	t.Helper()
-	os.Unsetenv("HOP_CONFIG")
-	os.Unsetenv("REPOS_YAML")
-	os.Unsetenv("XDG_CONFIG_HOME")
-	t.Setenv("HOME", os.Getenv("HOME")) // preserve HOME for ~ expansion in tests that rely on it
+	t.Setenv("HOME", t.TempDir())
 }

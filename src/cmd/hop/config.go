@@ -33,7 +33,7 @@ func newConfigInitCmd() *cobra.Command {
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Created %s\n", target)
 			fmt.Fprintln(cmd.ErrOrStderr(), "Edit the file to add your repos, or run `hop config scan <dir>` to populate from existing on-disk repos.")
-			fmt.Fprintln(cmd.ErrOrStderr(), "Tip: set $HOP_CONFIG in your shell rc to point at a version-tracked location (a git-tracked dotfile, Dropbox, etc.) so this config moves with you across machines.")
+			fmt.Fprintln(cmd.ErrOrStderr(), "Tip: to sync this config across machines, keep it in your dotfiles and symlink ~/.config/hop/hop.yaml to it.")
 			return nil
 		},
 	}

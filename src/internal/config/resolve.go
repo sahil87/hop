@@ -7,63 +7,47 @@ import (
 	"path/filepath"
 )
 
-// ErrNoConfig is returned when none of the search-order candidates resolve.
+// ErrNoConfig is returned when the fixed config path does not resolve. Retained
+// (exported) for compatibility; the actual returned errors use fmt.Errorf with
+// the messages below (callers don't currently errors.Is the sentinel).
 var ErrNoConfig = errors.New("hop: no hop.yaml found")
 
-// Resolve walks the search order from docs/specs/config-resolution.md (adapted
-// for the rename to `hop`):
-//  1. $HOP_CONFIG if set (hard-error if file is missing)
-//  2. $XDG_CONFIG_HOME/hop/hop.yaml if $XDG_CONFIG_HOME is set
-//  3. $HOME/.config/hop/hop.yaml
-//
-// Returns the resolved path or an error if none can be determined.
+// configPath returns the single, fixed config location. The only environment
+// input is $HOME (unavoidable). No $HOP_CONFIG, no $XDG_CONFIG_HOME — the path
+// is identical on macOS and Linux by construction (we build it with
+// filepath.Join rather than os.UserConfigDir, which would resolve to
+// ~/Library/Application Support on macOS).
+func configPath() (string, error) {
+	home := os.Getenv("HOME")
+	if home == "" {
+		return "", fmt.Errorf("hop: $HOME is not set; cannot locate config")
+	}
+	return filepath.Join(home, ".config", "hop", "hop.yaml"), nil
+}
+
+// Resolve returns the fixed config path $HOME/.config/hop/hop.yaml when the file
+// exists, or a not-found error otherwise. Used by every read path.
 func Resolve() (string, error) {
-	if p, ok := os.LookupEnv("HOP_CONFIG"); ok && p != "" {
-		if _, err := os.Stat(p); err != nil {
-			if os.IsNotExist(err) {
-				return "", fmt.Errorf("hop: $HOP_CONFIG points to %s, which does not exist. Set $HOP_CONFIG to an existing file or unset it.", p)
-			}
-			return "", fmt.Errorf("hop: stat $HOP_CONFIG (%s): %w", p, err)
+	p, err := configPath()
+	if err != nil {
+		return "", err
+	}
+	if _, err := os.Stat(p); err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("hop: no hop.yaml found at %s. Run 'hop config init' to create one.", p)
 		}
-		return p, nil
+		return "", fmt.Errorf("hop: stat %s: %w", p, err)
 	}
-
-	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-		p := filepath.Join(xdg, "hop", "hop.yaml")
-		if _, err := os.Stat(p); err == nil {
-			return p, nil
-		}
-	}
-
-	if home := os.Getenv("HOME"); home != "" {
-		p := filepath.Join(home, ".config", "hop", "hop.yaml")
-		if _, err := os.Stat(p); err == nil {
-			return p, nil
-		}
-	}
-
-	bootstrap, werr := ResolveWriteTarget()
-	if werr != nil {
-		bootstrap = "$XDG_CONFIG_HOME/hop/hop.yaml"
-	}
-	return "", fmt.Errorf("hop: no hop.yaml found. Set $HOP_CONFIG to a tracked file (e.g., a Dropbox path or a git-tracked dotfile), or run 'hop config init' to bootstrap one at %s.", bootstrap)
+	return p, nil
 }
 
 // ResolveWriteTarget returns the path that would be used as the config target
-// for hop config init / hop config where. Unlike Resolve, this does NOT trigger
-// the "$HOP_CONFIG set but missing" hard error — it returns the path that *would*
-// be used regardless of whether the file currently exists.
+// for hop config init / hop config where. Unlike Resolve, this does NOT stat the
+// file — it returns the path that *would* be used regardless of whether the file
+// currently exists. Kept as a distinct function (wrapping configPath) so the
+// no-stat seam init/where rely on is preserved.
 //
-// Returns an error only when no path can be determined (no env vars and no $HOME).
+// Returns an error only when the path cannot be determined (no $HOME).
 func ResolveWriteTarget() (string, error) {
-	if p, ok := os.LookupEnv("HOP_CONFIG"); ok && p != "" {
-		return p, nil
-	}
-	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-		return filepath.Join(xdg, "hop", "hop.yaml"), nil
-	}
-	if home := os.Getenv("HOME"); home != "" {
-		return filepath.Join(home, ".config", "hop", "hop.yaml"), nil
-	}
-	return "", fmt.Errorf("hop: no config path resolvable. Set $HOP_CONFIG or ensure $XDG_CONFIG_HOME or $HOME is set.")
+	return configPath()
 }
