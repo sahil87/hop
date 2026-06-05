@@ -29,12 +29,14 @@ The literal `filepath.Join` construction is deliberate: `os.UserConfigDir()` was
 - File exists → return the path, nil.
 - `os.IsNotExist` → not-found error:
   ```
-  hop: no hop.yaml found at <path>. Run 'hop config init' to create one.
+  hop: no hop.yaml found at <path>. Run 'hop add <dir>' to register a repo (creates the config), or 'hop config init' for a starter.
   ```
-  where `<path>` is the resolved fixed path (e.g., `/Users/you/.config/hop/hop.yaml`).
+  where `<path>` is the resolved fixed path (e.g., `/Users/you/.config/hop/hop.yaml`). The message points at **both** bootstrap paths (refined in change `260605-44hm-auto-init-on-write`): `hop add` now auto-creates the config (so it's a true hint), and `hop config init` writes the annotated starter.
 - Any other stat error → wrapped as `hop: stat <path>: <err>`.
 - `$HOME` unset → propagates `configPath()`'s `hop: $HOME is not set; cannot locate config`.
 - Sentinel `ErrNoConfig` is exported but the actual returned errors use `fmt.Errorf` with the exact messages above (callers don't currently `errors.Is` the sentinel).
+
+**Read-vs-write split** (change `260605-44hm-auto-init-on-write`): `Resolve()` is the **read** seam — every read-command (`hop`, `hop ls`, `hop <name> where`, `hop config print`, and `hop config scan` print mode) errors on absence with the message above, because there's nothing to write. The **write-commands** (`hop add`, `hop config scan --write`, `hop clone <url>`) take the `ResolveWriteTarget()` + `config.EnsureSkeleton()` path instead: they auto-create a minimal `repos: {}` skeleton (announced `created: <path>`) rather than erroring. The fixed-path property above is the safety precondition that makes this unambiguous. See [init-bootstrap § Auto-init-on-write](init-bootstrap.md#auto-init-on-write-change-260605-44hm-auto-init-on-write).
 
 There is no `$HOP_CONFIG` set-but-missing hard error — that branch was deleted along with the env var. Setting `$HOP_CONFIG` or `$XDG_CONFIG_HOME` to anything (including a bad path) has no effect: only the fixed-path not-found error can fire.
 
@@ -54,8 +56,9 @@ The previous v0.0.1 search order (`$REPOS_YAML`, `$XDG_CONFIG_HOME/repo/repos.ya
 ## Design Decisions
 
 1. **Single fixed path, zero env-var overrides** (change `260605-xgmu-fix-config-location`): `$HOP_CONFIG` and `$XDG_CONFIG_HOME` branching (and the `$HOP_CONFIG` set-but-missing hard error) were removed entirely. *Why*: env vars exported from `.zshrc` are unset in non-login / AI / CI shells, so the env-driven path made `hop` unusable in exactly those automation contexts. A literal home-relative path is environment-independent and identical across darwin/linux. Dotfile sync still works — symlink `~/.config/hop/hop.yaml` to a tracked file. This is a clean break (no migration shim), consistent with the prior `$REPOS_YAML` removal.
+2. **Fixed-path absence is unambiguous → write-commands auto-init** (change `260605-44hm-auto-init-on-write`, depends on #1): once the path is fixed with no env overrides, "no file at the one known path" means exactly one thing — it doesn't exist yet. That removes the only justification for the write-commands' old require-`init`-first gate, so `hop add` / `scan --write` / `clone <url>` now auto-create the config via `EnsureSkeleton` instead of erroring. The auto-init change SHALL NOT have shipped before the fixed-path change (#1), because under env-driven resolution a failed resolve was ambiguous and auto-creating would have masked a misconfiguration. See [init-bootstrap § Auto-init-on-write](init-bootstrap.md#auto-init-on-write-change-260605-44hm-auto-init-on-write).
 
 ## Cross-references
 
 - YAML schema and parsing: [yaml-schema](yaml-schema.md)
-- Bootstrap behavior of `hop config init`: [init-bootstrap](init-bootstrap.md)
+- Bootstrap behavior of `hop config init` + auto-init-on-write (`EnsureSkeleton`): [init-bootstrap](init-bootstrap.md)

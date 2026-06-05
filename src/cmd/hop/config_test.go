@@ -149,7 +149,11 @@ func fakeURLForDir(t *testing.T, urlByDir map[string]string) scan.GitRunner {
 	}
 }
 
-func TestConfigScanMissingHopYaml(t *testing.T) {
+// TestConfigScanMissingHopYamlPrintModeStillErrors verifies that print mode
+// (no --write) STILL errors on a missing config — print mode never touches the
+// file, so there is nothing to auto-init (R4 / Assumption 7). The surfaced
+// message is now config.Resolve()'s refined two-path hint.
+func TestConfigScanMissingHopYamlPrintModeStillErrors(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	// No config file written — the fixed path does not exist.
@@ -164,8 +168,55 @@ func TestConfigScanMissingHopYaml(t *testing.T) {
 	if !strings.Contains(got, "no hop.yaml found at "+missing) {
 		t.Errorf("missing-config message not found; stderr=%q", got)
 	}
-	if !strings.Contains(got, "Run 'hop config init' first") {
-		t.Errorf("missing init hint; stderr=%q", got)
+	// Refined message points at hop add (and config init); the old
+	// "Run 'hop config init' first, then re-run scan." gate is gone.
+	if !strings.Contains(got, "Run 'hop add <dir>'") {
+		t.Errorf("missing refined hop-add hint; stderr=%q", got)
+	}
+	if strings.Contains(got, "re-run scan") {
+		t.Errorf("old scan-gate message still present; stderr=%q", got)
+	}
+	// Print mode must NOT have created the file.
+	if _, statErr := os.Stat(missing); statErr == nil {
+		t.Errorf("print mode created the config; it must not")
+	}
+}
+
+// TestConfigScanWriteModeAutoInits verifies that --write on a fresh machine
+// auto-creates the skeleton (announced via created:) and then merges the scan
+// results (R4).
+func TestConfigScanWriteModeAutoInits(t *testing.T) {
+	clearConfigEnv(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	configPath := filepath.Join(home, ".config", "hop", "hop.yaml")
+	// No config — auto-init must create it.
+
+	// A convention repo under ~/code so it lands in the default group.
+	repoDir := filepath.Join(home, "code", "sahil87", "hop")
+	makeRepoDir(t, repoDir)
+	canonRepo, _ := filepath.EvalSymlinks(repoDir)
+	withFakeGitRunner(t, fakeURLForDir(t, map[string]string{
+		canonRepo: "git@github.com:sahil87/hop.git",
+	}))
+
+	_, stderr, err := runArgs(t, "config", "scan", filepath.Join(home, "code"), "--write")
+	if err != nil {
+		t.Fatalf("scan --write (fresh env): %v\nstderr: %s", err, stderr.String())
+	}
+	got := stderr.String()
+	if !strings.Contains(got, "created: "+configPath) {
+		t.Errorf("missing created: announcement; stderr=%q", got)
+	}
+	if !strings.Contains(got, "wrote: "+configPath) {
+		t.Errorf("missing wrote: line; stderr=%q", got)
+	}
+	contents, readErr := os.ReadFile(configPath)
+	if readErr != nil {
+		t.Fatalf("config not created: %v", readErr)
+	}
+	if !strings.Contains(string(contents), "git@github.com:sahil87/hop.git") {
+		t.Errorf("scanned URL not merged; got:\n%s", contents)
 	}
 }
 
@@ -608,5 +659,13 @@ func TestConfigPrintNoConfigErrors(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "no hop.yaml found") {
 		t.Errorf("expected 'no hop.yaml found' in error; got %q", err.Error())
+	}
+	// Read commands surface the refined two-path hint (R2 / Assumption 11):
+	// point at both `hop add <dir>` and `hop config init`.
+	if !strings.Contains(err.Error(), "Run 'hop add <dir>'") {
+		t.Errorf("expected refined hop-add hint; got %q", err.Error())
+	}
+	if !strings.Contains(err.Error(), "'hop config init' for a starter") {
+		t.Errorf("expected config-init starter hint; got %q", err.Error())
 	}
 }

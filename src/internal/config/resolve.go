@@ -34,7 +34,7 @@ func Resolve() (string, error) {
 	}
 	if _, err := os.Stat(p); err != nil {
 		if os.IsNotExist(err) {
-			return "", fmt.Errorf("hop: no hop.yaml found at %s. Run 'hop config init' to create one.", p)
+			return "", fmt.Errorf("hop: no hop.yaml found at %s. Run 'hop add <dir>' to register a repo (creates the config), or 'hop config init' for a starter.", p)
 		}
 		return "", fmt.Errorf("hop: stat %s: %w", p, err)
 	}

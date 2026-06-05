@@ -31,23 +31,108 @@ func TestConfigAddDirNotADirectory(t *testing.T) {
 	}
 }
 
-func TestConfigAddMissingHopYaml(t *testing.T) {
+// TestConfigAddMissingHopYamlAutoInits verifies the gate flip (R3): on a fresh
+// machine with no config, `hop config add` no longer errors — it auto-creates a
+// minimal skeleton (announced via `created:`) and then proceeds. Here the target
+// is a plain (non-git) dir, so after creation the forgiving "not a git repo"
+// no-op fires (exit 0).
+func TestConfigAddMissingHopYamlAutoInits(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	// No config file written — the fixed path does not exist.
-	missing := filepath.Join(home, ".config", "hop", "hop.yaml")
+	configPath := filepath.Join(home, ".config", "hop", "hop.yaml")
 
 	addDir := t.TempDir()
 	_, stderr, err := runArgs(t, "config", "add", addDir)
-	if err == nil || !errors.Is(err, errSilent) {
-		t.Fatalf("expected errSilent, got %v", err)
+	if err != nil {
+		t.Fatalf("expected forgiving exit 0 after auto-init, got %v", err)
 	}
 	got := stderr.String()
-	if !strings.Contains(got, "no hop.yaml found at "+missing) {
-		t.Errorf("missing-config message not found; stderr=%q", got)
+	if !strings.Contains(got, "created: "+configPath) {
+		t.Errorf("missing created: announcement; stderr=%q", got)
 	}
-	if !strings.Contains(got, "Run 'hop config init' first") {
-		t.Errorf("missing init hint; stderr=%q", got)
+	// The old gate message must be gone.
+	if strings.Contains(got, "Run 'hop config init' first") {
+		t.Errorf("old init-first gate message still present; stderr=%q", got)
+	}
+	// The config file was created with the minimal skeleton.
+	contents, readErr := os.ReadFile(configPath)
+	if readErr != nil {
+		t.Fatalf("config not created: %v", readErr)
+	}
+	if string(contents) != "repos: {}\n" {
+		t.Errorf("skeleton content = %q, want %q", string(contents), "repos: {}\n")
+	}
+	// Non-git dir → forgiving no-op message after creation.
+	if !strings.Contains(got, "is not a git repo") {
+		t.Errorf("missing 'not a git repo' no-op message; stderr=%q", got)
+	}
+}
+
+// TestTopLevelAddAutoInitsAndRegisters verifies the canonical top-level
+// `hop add` auto-creates the config on a fresh machine and registers the repo
+// (R3): a real convention repo is added and the `created:`, `added:`, and
+// `wrote:` lines all appear.
+func TestTopLevelAddAutoInitsAndRegisters(t *testing.T) {
+	clearConfigEnv(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	configPath := filepath.Join(home, ".config", "hop", "hop.yaml")
+	// No config file — auto-init must create it.
+
+	repoDir := filepath.Join(home, "code", "sahil87", "hop")
+	makeRepoDir(t, repoDir)
+	canonRepo, _ := filepath.EvalSymlinks(repoDir)
+	withFakeGitRunner(t, fakeURLForDir(t, map[string]string{
+		canonRepo: "git@github.com:sahil87/hop.git",
+	}))
+
+	_, stderr, err := runArgs(t, "add", repoDir)
+	if err != nil {
+		t.Fatalf("hop add (fresh env): %v\nstderr: %s", err, stderr.String())
+	}
+	got := stderr.String()
+	if !strings.Contains(got, "created: "+configPath) {
+		t.Errorf("missing created: announcement; stderr=%q", got)
+	}
+	if !strings.Contains(got, "added: git@github.com:sahil87/hop.git") {
+		t.Errorf("missing added line; stderr=%q", got)
+	}
+	if !strings.Contains(got, "wrote: "+configPath) {
+		t.Errorf("missing wrote line; stderr=%q", got)
+	}
+	contents, _ := os.ReadFile(configPath)
+	if !strings.Contains(string(contents), "git@github.com:sahil87/hop.git") {
+		t.Errorf("URL not merged into hop.yaml; got:\n%s", contents)
+	}
+}
+
+// TestAddAutoInitIsIdempotent verifies that a second write-command invocation
+// does NOT re-announce `created:` — the file already exists after the first run
+// (R3 / idempotency).
+func TestAddAutoInitIsIdempotent(t *testing.T) {
+	clearConfigEnv(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	configPath := filepath.Join(home, ".config", "hop", "hop.yaml")
+
+	// First add: a non-git dir is enough to trigger the auto-init create path.
+	plain := t.TempDir()
+	_, stderr1, err := runArgs(t, "add", plain)
+	if err != nil {
+		t.Fatalf("first add: %v", err)
+	}
+	if !strings.Contains(stderr1.String(), "created: "+configPath) {
+		t.Fatalf("first add should announce created:; stderr=%q", stderr1.String())
+	}
+
+	// Second add: config now exists → must NOT re-announce created:.
+	plain2 := t.TempDir()
+	_, stderr2, err := runArgs(t, "add", plain2)
+	if err != nil {
+		t.Fatalf("second add: %v", err)
+	}
+	if strings.Contains(stderr2.String(), "created:") {
+		t.Errorf("second add re-announced created: (not idempotent); stderr=%q", stderr2.String())
 	}
 }
 

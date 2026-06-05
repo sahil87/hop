@@ -286,3 +286,38 @@ func WriteStarter(path string) error {
 func StarterContent() []byte {
 	return starterContent
 }
+
+// skeletonContent is the minimal hop.yaml written by EnsureSkeleton: just an
+// empty `repos:` mapping, no `config:` block and no header comment. code_root
+// defaults to "~" when the config block is absent, so this is fully functional.
+// Unlike starter.yaml, it injects no example repos (the write-command that
+// triggered the auto-init carries the user's intent).
+const skeletonContent = "repos: {}\n"
+
+// EnsureSkeleton creates a minimal hop.yaml skeleton at path when the file is
+// absent, returning created=true. When the file already exists it is left
+// untouched and created=false is returned (never overwrites — the inverse
+// trigger of WriteStarter: absence creates, presence is the no-op).
+//
+// On create it makes the parent directory with mode 0755 and writes the
+// skeleton with mode 0644 (same mode rationale as the starter: repo paths +
+// public URLs, no credentials). A stat error other than not-exist is returned.
+//
+// Used by the write-commands (hop add, hop config scan --write, hop clone <url>)
+// to auto-bootstrap the config instead of erroring on a fresh machine.
+func EnsureSkeleton(path string) (created bool, err error) {
+	if _, err := os.Stat(path); err == nil {
+		return false, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return false, fmt.Errorf("hop: stat %s: %w", path, err)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return false, fmt.Errorf("hop: mkdir %s: %w", filepath.Dir(path), err)
+	}
+
+	if err := os.WriteFile(path, []byte(skeletonContent), 0o644); err != nil {
+		return false, fmt.Errorf("hop: write %s: %w", path, err)
+	}
+	return true, nil
+}

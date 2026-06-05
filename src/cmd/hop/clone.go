@@ -106,10 +106,41 @@ func cloneOne(cmd *cobra.Command, r repos.Repo) error {
 // target group, computes the on-disk path, clones (or skips), appends the URL
 // to hop.yaml (unless --no-add), and prints the path on stdout (unless --no-cd).
 func cloneURL(cmd *cobra.Command, url, group string, noAdd, noCD bool, nameOverride string) error {
-	configPath, err := config.Resolve()
+	// Validate --group against the schema regex BEFORE touching the filesystem.
+	// On a fresh machine EnsureSkeleton + EnsureGroup would otherwise persist an
+	// invalid YAML key (e.g. "My Group"), which config.Load then rejects —
+	// leaving a newly-created but unparseable hop.yaml behind. An invalid group
+	// name is never a valid target on either path (fresh or pre-existing), so
+	// reject it up front as a usage error (exit 2) before any write.
+	if !scanGroupNameRe.MatchString(group) {
+		return &errExitCode{code: 2, msg: fmt.Sprintf("hop clone: invalid --group '%s'. Group names must match %s.", group, scanGroupNameRe.String())}
+	}
+
+	// clone <url> is a write-command: auto-init a missing config with a minimal
+	// skeleton instead of erroring (the only ResolveWriteTarget error is
+	// $HOME-unset, an environment failure).
+	configPath, err := config.ResolveWriteTarget()
 	if err != nil {
 		return err
 	}
+	created, err := config.EnsureSkeleton(configPath)
+	if err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "hop clone: %v\n", err)
+		return errSilent
+	}
+	if created {
+		fmt.Fprintf(cmd.ErrOrStderr(), "created: %s\n", configPath)
+		// A fresh `repos: {}` skeleton has no groups at all, so the requested
+		// target group (default or --group <name>) won't exist yet. Create it
+		// before AppendURL. This only runs when WE just created the file — on a
+		// pre-existing config a typo'd --group must still error via findGroup
+		// below (preserving AppendURL's ErrGroupNotFound typo-catching contract).
+		if err := yamled.EnsureGroup(configPath, group); err != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), "hop clone: %v\n", err)
+			return errSilent
+		}
+	}
+
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		return err
