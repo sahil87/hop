@@ -1,0 +1,8 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-06-05T06:40:22Z"}
+{"args":"refactor: fix hop.yaml location to ~/.config/hop/hop.yaml, remove $HOP_CONFIG and $XDG_CONFIG_HOME overrides","cmd":"fab-new","event":"command","ts":"2026-06-05T06:40:22Z"}
+{"delta":"+2.1","event":"confidence","score":2.1,"trigger":"calc-score","ts":"2026-06-05T06:41:46Z"}
+{"delta":"+0.0","event":"confidence","score":2.1,"trigger":"calc-score","ts":"2026-06-05T06:41:53Z"}
+{"cmd":"fab-clarify","event":"command","ts":"2026-06-05T06:44:21Z"}
+{"delta":"+2.9","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-06-05T07:03:21Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-06-05T07:03:34Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-06-05T07:03:40Z"}
