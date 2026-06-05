@@ -56,20 +56,33 @@ func runConfigScan(cmd *cobra.Command, userArg string, depth int, write bool) er
 		return &errExitCode{code: 2}
 	}
 
-	// 3. Resolve hop.yaml. On miss, emit the scan-specific two-line message
-	//    pointing at ResolveWriteTarget (per spec § "hop.yaml precondition").
-	configPath, err := config.Resolve()
-	if err != nil {
-		bootstrap, werr := config.ResolveWriteTarget()
-		if werr != nil {
-			// The config path can't even be computed (only happens when $HOME
-			// is unset). Surface the original resolver error so the user gets
-			// the actionable cause instead of a misleading "no hop.yaml found".
+	// 3. Resolve hop.yaml. Only --write touches the file, so only --write
+	//    auto-inits a missing config (print mode never creates — there is
+	//    nothing to bootstrap). Print mode keeps erroring on a missing config.
+	var configPath string
+	if write {
+		var err error
+		configPath, err = config.ResolveWriteTarget()
+		if err != nil {
+			// Only fires when $HOME is unset — an environment failure.
 			fmt.Fprintf(stderr, "%s: %v\n", scanCmdName, err)
 			return errSilent
 		}
-		fmt.Fprintf(stderr, "%s: no hop.yaml found at %s.\nRun 'hop config init' first, then re-run scan.\n", scanCmdName, bootstrap)
-		return errSilent
+		created, err := config.EnsureSkeleton(configPath)
+		if err != nil {
+			fmt.Fprintf(stderr, "%s: %v\n", scanCmdName, err)
+			return errSilent
+		}
+		if created {
+			fmt.Fprintf(stderr, "created: %s\n", configPath)
+		}
+	} else {
+		var err error
+		configPath, err = config.Resolve()
+		if err != nil {
+			fmt.Fprintf(stderr, "%s: %v\n", scanCmdName, err)
+			return errSilent
+		}
 	}
 
 	// 4. Load existing config (used for the convention check + dedup).

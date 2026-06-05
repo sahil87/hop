@@ -236,3 +236,68 @@ func TestStarterParses(t *testing.T) {
 		t.Fatalf("starter does not parse: %v", err)
 	}
 }
+
+// --- EnsureSkeleton tests --------------------------------------------------
+
+// TestEnsureSkeletonCreatesWhenAbsent verifies that EnsureSkeleton creates the
+// minimal `repos: {}\n` skeleton (exact bytes, mode 0644), makes parent
+// directories, and returns created=true.
+func TestEnsureSkeletonCreatesWhenAbsent(t *testing.T) {
+	dir := t.TempDir()
+	// Nested path so we also exercise MkdirAll creating parent dirs.
+	target := filepath.Join(dir, ".config", "hop", "hop.yaml")
+
+	created, err := EnsureSkeleton(target)
+	if err != nil {
+		t.Fatalf("EnsureSkeleton: %v", err)
+	}
+	if !created {
+		t.Errorf("expected created=true for absent file")
+	}
+
+	got, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if string(got) != "repos: {}\n" {
+		t.Errorf("skeleton content = %q, want %q", string(got), "repos: {}\n")
+	}
+
+	info, err := os.Stat(target)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if info.Mode().Perm() != 0o644 {
+		t.Errorf("expected mode 0644, got %o", info.Mode().Perm())
+	}
+
+	// The skeleton must parse against the loader's schema.
+	if _, err := Load(target); err != nil {
+		t.Errorf("skeleton does not parse: %v", err)
+	}
+}
+
+// TestEnsureSkeletonNoOpWhenPresent verifies that EnsureSkeleton never
+// overwrites an existing file: it leaves the bytes byte-for-byte unchanged and
+// returns created=false.
+func TestEnsureSkeletonNoOpWhenPresent(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "hop.yaml")
+	original := []byte("config:\n  code_root: ~/code\nrepos:\n  default:\n    - git@github.com:sahil87/hop.git\n")
+	if err := os.WriteFile(target, original, 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	created, err := EnsureSkeleton(target)
+	if err != nil {
+		t.Fatalf("EnsureSkeleton: %v", err)
+	}
+	if created {
+		t.Errorf("expected created=false for existing file")
+	}
+
+	got, _ := os.ReadFile(target)
+	if !bytes.Equal(got, original) {
+		t.Errorf("existing file modified; got:\n%s", got)
+	}
+}

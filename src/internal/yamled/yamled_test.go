@@ -738,6 +738,123 @@ func TestRemoveURLGroupNotFoundIsForgiving(t *testing.T) {
 	}
 }
 
+// --- EnsureGroup tests ----------------------------------------------------
+
+func TestEnsureGroupCreatesWhenAbsentOnSkeleton(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "hop.yaml")
+	// The minimal skeleton EnsureSkeleton writes.
+	if err := os.WriteFile(path, []byte("repos: {}\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	if err := EnsureGroup(path, "default"); err != nil {
+		t.Fatalf("EnsureGroup: %v", err)
+	}
+
+	got, _ := os.ReadFile(path)
+	gotStr := string(got)
+	if !strings.Contains(gotStr, "default:") {
+		t.Errorf("default group not created; got:\n%s", gotStr)
+	}
+	// The result must parse as a valid empty group (rule: AppendURL can target it).
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("created group does not parse: %v\n%s", err, gotStr)
+	}
+	found := false
+	for _, g := range cfg.Groups {
+		if g.Name == "default" {
+			found = true
+			if len(g.URLs) != 0 {
+				t.Errorf("expected empty default group, got URLs %v", g.URLs)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("default group not present after EnsureGroup; got:\n%s", gotStr)
+	}
+}
+
+func TestEnsureGroupCreatesNamedGroup(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "hop.yaml")
+	if err := os.WriteFile(path, []byte("repos: {}\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	if err := EnsureGroup(path, "vendor"); err != nil {
+		t.Fatalf("EnsureGroup: %v", err)
+	}
+	got, _ := os.ReadFile(path)
+	if !strings.Contains(string(got), "vendor:") {
+		t.Errorf("vendor group not created; got:\n%s", got)
+	}
+	// AppendURL should now succeed against the created group.
+	if err := AppendURL(path, "vendor", "git@github.com:vendor/tool.git"); err != nil {
+		t.Fatalf("AppendURL after EnsureGroup: %v", err)
+	}
+}
+
+func TestEnsureGroupIdempotentWhenPresent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "hop.yaml")
+	original := `# top comment
+repos:
+  default:
+    - git@github.com:sahil87/hop.git    # the locator tool
+  vendor:
+    dir: ~/vendor
+    urls:
+      - git@github.com:vendor/tool.git
+`
+	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	if err := EnsureGroup(path, "default"); err != nil {
+		t.Fatalf("EnsureGroup: %v", err)
+	}
+
+	// Idempotent: an existing group means a no-op — file byte-for-byte unchanged
+	// (comments and all other groups preserved).
+	got, _ := os.ReadFile(path)
+	if string(got) != original {
+		t.Errorf("file modified for existing group (expected no-op); got:\n%s", got)
+	}
+}
+
+func TestEnsureGroupPreservesExistingGroupsWhenAddingNew(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "hop.yaml")
+	original := `# top comment
+repos:
+  default:
+    - git@github.com:sahil87/hop.git    # keep this comment
+`
+	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	if err := EnsureGroup(path, "vendor"); err != nil {
+		t.Fatalf("EnsureGroup: %v", err)
+	}
+	got, _ := os.ReadFile(path)
+	gotStr := string(got)
+	if !strings.Contains(gotStr, "# top comment") {
+		t.Errorf("top comment lost; got:\n%s", gotStr)
+	}
+	if !strings.Contains(gotStr, "# keep this comment") {
+		t.Errorf("inline comment lost; got:\n%s", gotStr)
+	}
+	if !strings.Contains(gotStr, "git@github.com:sahil87/hop.git") {
+		t.Errorf("existing default URL lost; got:\n%s", gotStr)
+	}
+	if !strings.Contains(gotStr, "vendor:") {
+		t.Errorf("vendor group not created; got:\n%s", gotStr)
+	}
+}
+
 func TestMergeScanReuseExistingInventedGroupByName(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "hop.yaml")

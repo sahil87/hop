@@ -72,12 +72,16 @@ func TestLooksLikeURL(t *testing.T) {
 	}
 }
 
+// TestCloneURLMissingGroupErrors verifies the typo-catching contract is
+// preserved (R6 / Assumption 9): against a PRE-EXISTING config, a typo'd
+// --group still errors via findGroup==nil. EnsureGroup runs only on a freshly
+// auto-created skeleton, so it does NOT fire here (the config already exists).
 func TestCloneURLMissingGroupErrors(t *testing.T) {
 	yaml := `repos:
   default:
     - git@github.com:sahil87/hop.git
 `
-	writeReposFixture(t, yaml)
+	configPath := writeReposFixture(t, yaml)
 
 	_, stderr, err := runArgs(t, "clone", "--group", "nonexistent", "git@github.com:foo/bar.git")
 	if err == nil {
@@ -85,6 +89,105 @@ func TestCloneURLMissingGroupErrors(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "no 'nonexistent' group") {
 		t.Fatalf("expected missing-group message, got %q", stderr.String())
+	}
+	// The typo'd group must NOT have been created on the existing config.
+	if strings.Contains(stderr.String(), "created:") {
+		t.Errorf("auto-init fired on a pre-existing config; stderr=%q", stderr.String())
+	}
+	contents, _ := os.ReadFile(configPath)
+	if strings.Contains(string(contents), "nonexistent") {
+		t.Errorf("typo'd group was created on existing config; got:\n%s", contents)
+	}
+}
+
+// TestCloneURLFreshEnvAutoInitsDefaultGroup verifies that `hop clone <url>` on a
+// fresh machine (no config) auto-creates the config, ensures the default group
+// exists, clones the repo, and registers the URL (R6). Uses a local bare repo to
+// avoid the network.
+func TestCloneURLFreshEnvAutoInitsDefaultGroup(t *testing.T) {
+	clearConfigEnv(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	configPath := filepath.Join(home, ".config", "hop", "hop.yaml")
+
+	url, _ := initBareRepo(t, t.TempDir())
+
+	_, stderr, err := runArgs(t, "clone", url)
+	if err != nil {
+		t.Fatalf("clone <url> (fresh env): %v\nstderr: %s", err, stderr.String())
+	}
+	got := stderr.String()
+	if !strings.Contains(got, "created: "+configPath) {
+		t.Errorf("missing created: announcement; stderr=%q", got)
+	}
+	// The default group exists and the URL is registered under it.
+	urls := readYAMLURLs(t, configPath, "default")
+	found := false
+	for _, u := range urls {
+		if u == url {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("URL %q not registered under default; got %v", url, urls)
+	}
+}
+
+// TestCloneURLFreshEnvCreatesNamedGroup verifies that `--group <name>` on a fresh
+// machine creates that group (not just default) and registers the URL there (R6).
+func TestCloneURLFreshEnvCreatesNamedGroup(t *testing.T) {
+	clearConfigEnv(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	configPath := filepath.Join(home, ".config", "hop", "hop.yaml")
+
+	url, _ := initBareRepo(t, t.TempDir())
+
+	_, stderr, err := runArgs(t, "clone", "--group", "vendor", url)
+	if err != nil {
+		t.Fatalf("clone --group vendor (fresh env): %v\nstderr: %s", err, stderr.String())
+	}
+	got := stderr.String()
+	if !strings.Contains(got, "created: "+configPath) {
+		t.Errorf("missing created: announcement; stderr=%q", got)
+	}
+	// The vendor group was created and the URL registered there.
+	urls := readYAMLURLs(t, configPath, "vendor")
+	if len(urls) != 1 || urls[0] != url {
+		t.Errorf("expected vendor.urls = [%s], got %v", url, urls)
+	}
+}
+
+// TestCloneURLFreshEnvNoAddStillCreatesConfig pins the intentional interaction
+// between --no-add and fresh-env auto-init: --no-add suppresses the URL
+// write-back, NOT the config file's creation. The skeleton + target group are
+// still needed for path resolution (findGroup / resolveAdHocPath), so the file
+// is created and announced even though nothing is registered into it. This is a
+// deliberate behavior (R6 does not carve out --no-add); the test exists to keep
+// it from changing silently.
+func TestCloneURLFreshEnvNoAddStillCreatesConfig(t *testing.T) {
+	clearConfigEnv(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	configPath := filepath.Join(home, ".config", "hop", "hop.yaml")
+
+	url, _ := initBareRepo(t, t.TempDir())
+
+	_, stderr, err := runArgs(t, "clone", "--no-add", url)
+	if err != nil {
+		t.Fatalf("clone --no-add <url> (fresh env): %v\nstderr: %s", err, stderr.String())
+	}
+	// The config file is still created and announced.
+	if got := stderr.String(); !strings.Contains(got, "created: "+configPath) {
+		t.Errorf("missing created: announcement; stderr=%q", got)
+	}
+	if _, statErr := os.Stat(configPath); statErr != nil {
+		t.Fatalf("expected config created at %s: %v", configPath, statErr)
+	}
+	// But --no-add means the URL is NOT registered: default exists (ensured) yet empty.
+	urls := readYAMLURLs(t, configPath, "default")
+	if len(urls) != 0 {
+		t.Errorf("expected default empty (--no-add suppresses write-back), got %v", urls)
 	}
 }
 

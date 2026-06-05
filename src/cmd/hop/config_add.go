@@ -74,19 +74,23 @@ func runAdd(cmd *cobra.Command, cmdName, userArg string) error {
 		return &errExitCode{code: 2}
 	}
 
-	// 2. Resolve hop.yaml (precondition mirrors scan's two-line message).
-	configPath, err := config.Resolve()
+	// 2. Resolve the write target and auto-init the config when absent. add is a
+	//    write-command: it carries the user's intent (a specific dir to register),
+	//    so a missing config is bootstrapped with a minimal skeleton rather than
+	//    erroring. The only ResolveWriteTarget error is $HOME-unset — an
+	//    environment failure, surfaced as before.
+	configPath, err := config.ResolveWriteTarget()
 	if err != nil {
-		bootstrap, werr := config.ResolveWriteTarget()
-		if werr != nil {
-			// The config path can't even be computed (only happens when $HOME
-			// is unset). Surface the original resolver error so the user gets
-			// the actionable cause instead of a misleading "no hop.yaml found".
-			fmt.Fprintf(stderr, "%s: %v\n", cmdName, err)
-			return errSilent
-		}
-		fmt.Fprintf(stderr, "%s: no hop.yaml found at %s.\nRun 'hop config init' first, then re-run add.\n", cmdName, bootstrap)
+		fmt.Fprintf(stderr, "%s: %v\n", cmdName, err)
 		return errSilent
+	}
+	created, err := config.EnsureSkeleton(configPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "%s: %v\n", cmdName, err)
+		return errSilent
+	}
+	if created {
+		fmt.Fprintf(stderr, "created: %s\n", configPath)
 	}
 
 	// 3. Load existing config (used for the convention check + dedup).

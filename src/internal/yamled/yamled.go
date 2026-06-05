@@ -180,6 +180,89 @@ func removeURLFromTree(root *yaml.Node, group, url, path string) error {
 	return nil
 }
 
+// EnsureGroup loads the YAML file at path and, if repos.<group> is absent, adds
+// an empty sequence node (`<group>: []`) under repos, then writes the result
+// back atomically. It is idempotent: when the group already exists the file is
+// left byte-for-byte unchanged (no write at all). Existing groups and comments
+// are preserved.
+//
+// When the top-level `repos` mapping is absent it is synthesized (mirroring
+// mergeScanIntoTree), so a fresh `repos: {}` skeleton — or even an empty
+// document — is a valid target. Used by `hop clone <url>`'s auto-init path to
+// guarantee the target group exists before AppendURL (whose ErrGroupNotFound
+// contract is intentionally left unchanged).
+func EnsureGroup(path, group string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("yamled: read %s: %w", path, err)
+	}
+
+	var root yaml.Node
+	if len(data) > 0 {
+		if err := yaml.Unmarshal(data, &root); err != nil {
+			return fmt.Errorf("yamled: parse %s: %w", path, err)
+		}
+	}
+
+	changed, err := ensureGroupInTree(&root, group, path)
+	if err != nil {
+		return err
+	}
+	if !changed {
+		// Idempotent no-op: leave the file untouched (no rewrite).
+		return nil
+	}
+
+	out, err := yaml.Marshal(&root)
+	if err != nil {
+		return fmt.Errorf("yamled: marshal: %w", err)
+	}
+	return atomicWrite(path, out)
+}
+
+// ensureGroupInTree mutates the parsed tree in place: synthesize the top-level
+// mapping and the `repos` mapping if absent, then add `<group>: []` if the group
+// is missing. Returns changed=true when the tree was mutated (so the caller
+// knows whether a write is needed).
+func ensureGroupInTree(root *yaml.Node, group, path string) (changed bool, err error) {
+	if len(root.Content) == 0 {
+		root.Kind = yaml.DocumentNode
+		root.Content = []*yaml.Node{
+			{Kind: yaml.MappingNode, Tag: "!!map"},
+		}
+		changed = true
+	}
+	top := root.Content[0]
+	if top.Kind != yaml.MappingNode {
+		return false, fmt.Errorf("yamled: parse %s: top-level is not a mapping", path)
+	}
+
+	reposNode := mappingValue(top, "repos")
+	if reposNode == nil {
+		reposNode = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		top.Content = append(top.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "repos"},
+			reposNode,
+		)
+		changed = true
+	} else if reposNode.Kind != yaml.MappingNode {
+		return false, fmt.Errorf("yamled: 'repos' is not a mapping in %s", path)
+	}
+
+	if mappingValue(reposNode, group) != nil {
+		// Group already present — idempotent no-op (unless we synthesized repos
+		// above, which can't happen here since an existing group implies an
+		// existing repos mapping).
+		return changed, nil
+	}
+
+	reposNode.Content = append(reposNode.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: group},
+		&yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"},
+	)
+	return true, nil
+}
+
 // urlsSequenceOf returns the sequence node holding a group's URLs for both the
 // flat-list shape (the group node IS the sequence) and the map shape (the
 // group's `urls:` value). Returns nil when no URL sequence can be located.

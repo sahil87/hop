@@ -38,14 +38,16 @@ Exit 2. No `git` invocation occurs on a failed validation (Constitution I).
 
 ## `hop.yaml` precondition
 
-Before walking, the subcommand calls `config.Resolve()` to locate `hop.yaml`. If `Resolve()` returns an error (no config at the fixed `~/.config/hop/hop.yaml`, or `$HOME` unset), scan emits a scan-specific stderr message in place of the resolver's default text:
+How scan resolves (or creates) `hop.yaml` before walking depends on the mode — the two modes diverge because only `--write` touches the file (change `260605-44hm-auto-init-on-write`):
 
-```
-hop config scan: no hop.yaml found at <bootstrap-path>.
-Run 'hop config init' first, then re-run scan.
-```
+- **Write mode (`--write`)** auto-inits a missing config. `runConfigScan` calls `config.ResolveWriteTarget()` (no stat — only errors on `$HOME` unset) then `config.EnsureSkeleton(path)`, which writes the minimal `repos: {}` skeleton when absent and announces `created: <path>` to stderr (see [init-bootstrap § Auto-init-on-write](init-bootstrap.md#auto-init-on-write-change-260605-44hm-auto-init-on-write)). The merge then proceeds against the now-existing file. So `--write` on a fresh machine no longer errors — it bootstraps and merges in one step. (The old `Run 'hop config init' first, then re-run scan.` gate is **gone** for `--write`.)
+- **Print mode (default, no `--write`)** never touches the file, so there is nothing to bootstrap — it keeps calling `config.Resolve()` and **errors on absence**. The message is the refined resolver text (change `260605-44hm-auto-init-on-write`), surfaced under the scan prefix:
 
-`<bootstrap-path>` is `config.ResolveWriteTarget()`'s output (the path that `hop config init` would write). Exit 1. No walk is performed (no `git` invocations).
+  ```
+  hop config scan: hop: no hop.yaml found at <path>. Run 'hop add <dir>' to register a repo (creates the config), or 'hop config init' for a starter.
+  ```
+
+  `<path>` is the fixed `~/.config/hop/hop.yaml`. Exit 1. No walk is performed (no `git` invocations). (Print mode no longer has its own two-line gate message — it surfaces `config.Resolve()`'s message verbatim.)
 
 ## DFS algorithm and depth handling
 
@@ -234,7 +236,7 @@ type InventedGroup struct {
 `hop add <dir>` (`src/cmd/hop/config_add.go`) is the **single-dir, non-recursive** counterpart to scan — the inverse granularity (one named dir, no DFS, no `--depth`). It exists to register one already-on-disk repo without scanning its whole parent tree. (`hop add` is the canonical top-level command; `hop config add` is its hidden alias sharing the same `runAdd` body — see [cli/subcommands § Migration: hidden config aliases](../cli/subcommands.md#migration-hidden-config-aliases).) It deliberately shares scan's machinery rather than reimplementing it:
 
 - **Dir validation**: the same `validateConfigDir` helper documented under [Argument validation](#argument-validation) (`cmdName` is the per-path prefix `"hop add"` / `"hop config add"`).
-- **`hop.yaml` precondition**: the same missing-config two-line message style, pointing at `hop config init`. Missing → exit 1.
+- **`hop.yaml` precondition**: `add` **auto-inits** a missing config (change `260605-44hm-auto-init-on-write`). Like `scan --write`, it always writes, so `runAdd` uses `config.ResolveWriteTarget()` + `config.EnsureSkeleton(path)` (announcing `created: <path>` to stderr on create), then loads and proceeds — the old `Run 'hop config init' first, then re-run add.` gate is gone. The only remaining `ResolveWriteTarget` error is `$HOME`-unset (an environment failure, still exit 1). So `hop add <dir>` on a fresh machine creates the config and registers the repo in one step. See [init-bootstrap § Auto-init-on-write](init-bootstrap.md#auto-init-on-write-change-260605-44hm-auto-init-on-write).
 - **Classification**: instead of `scan.Walk`, `add` calls the exported single-dir entry point **`scan.ClassifyOne(ctx, canonicalDir, opts) (Found, skipReason string, isRepo bool, err error)`**. `ClassifyOne` wraps the *same* unexported `classifyDir` + `inspectRepo` logic that `Walk` applies per directory (first-match-wins worktree/normal-repo/bare-repo, then `git remote` + `git remote get-url`) — without the DFS scaffolding. It is the smallest exported seam: it does not leak the private `dirClass` enum and it folds in the remote-inspection step the CLI needs (see [package-layout](../architecture/package-layout.md#internalscan) for the exported-seam rationale).
 - **Group assignment + write**: a one-element `[]scan.Found` is fed to the *same* `buildScanPlan` (convention → `default`; else invented group from the slugified parent-dir basename) and applied via the *same* `yamled.MergeScan`. Unlike scan, `add` **writes by default** (no print mode) — the user named a specific directory, so printing would be odd.
 
@@ -245,8 +247,10 @@ Forgiving by design (matches `clone`'s no-op tone): a plain non-git dir, a workt
 | Code | Meaning |
 |---|---|
 | 0 | Success (any number of repos found, including zero) |
-| 1 | `hop.yaml` missing; YAML write/merge failure; load error on existing `hop.yaml`; `git` not on PATH (lazy) |
+| 1 | `hop.yaml` missing **in print mode only** (write mode auto-inits — see [precondition](#hopyaml-precondition)); YAML write/merge failure; load error on existing `hop.yaml`; `git` not on PATH (lazy); `$HOME` unset |
 | 2 | Usage error (no `<dir>` arg, dir validation failure, `--depth < 1`) |
+
+The missing-config exit-1 path applies to **print mode** only; `--write` (and `hop add`, which always writes) auto-init the skeleton instead of erroring (change `260605-44hm-auto-init-on-write`).
 
 ## Tool requirements
 
@@ -256,7 +260,7 @@ No other external tools are required by scan.
 
 ## Cross-references
 
-- Bootstrap-then-populate workflow and `hop config init`'s post-write tip wording: [init-bootstrap](init-bootstrap.md)
+- Bootstrap-then-populate workflow, `hop config init`'s post-write tip wording, and **auto-init-on-write** (`EnsureSkeleton`, the `created:` announcement, the read-vs-write split, and clone's `yamled.EnsureGroup` step): [init-bootstrap](init-bootstrap.md)
 - YAML schema and group regex `^[a-z][a-z0-9_-]*$` that slugify must conform to: [yaml-schema](yaml-schema.md)
 - `internal/scan` package role and `Walk`/`ClassifyOne`/`Found`/`Skip`/`Options` public surface: [architecture/package-layout](../architecture/package-layout.md)
 - Constitution I compliance: `internal/scan` invokes `git` only via `internal/proc.RunCapture`: [architecture/wrapper-boundaries](../architecture/wrapper-boundaries.md)
