@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -188,6 +189,39 @@ func TestCloneURLFreshEnvNoAddStillCreatesConfig(t *testing.T) {
 	urls := readYAMLURLs(t, configPath, "default")
 	if len(urls) != 0 {
 		t.Errorf("expected default empty (--no-add suppresses write-back), got %v", urls)
+	}
+}
+
+// TestCloneURLInvalidGroupRejectedBeforeWrite verifies that an invalid --group
+// value is rejected as a usage error (exit 2) BEFORE any filesystem mutation.
+// Without the up-front schema check, a fresh-machine clone would EnsureSkeleton
+// + EnsureGroup the invalid key, then config.Load would reject it — leaving a
+// newly-created but unparseable hop.yaml behind. The key correctness property
+// asserted here: NO config file is created when the group name is invalid.
+func TestCloneURLInvalidGroupRejectedBeforeWrite(t *testing.T) {
+	clearConfigEnv(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	configPath := filepath.Join(home, ".config", "hop", "hop.yaml")
+
+	// A plausible-but-invalid group name (uppercase + space — fails ^[a-z][a-z0-9_-]*$).
+	_, _, err := runArgs(t, "clone", "--group", "My Group", "file:///tmp/does-not-matter.git")
+	if err == nil {
+		t.Fatal("expected error for invalid --group, got nil")
+	}
+	var withCode *errExitCode
+	if !errors.As(err, &withCode) {
+		t.Fatalf("expected *errExitCode, got %T: %v", err, err)
+	}
+	if withCode.code != 2 {
+		t.Errorf("expected exit code 2, got %d", withCode.code)
+	}
+	if !strings.Contains(withCode.msg, "invalid --group 'My Group'") {
+		t.Errorf("message should name the invalid group; got %q", withCode.msg)
+	}
+	// The crucial invariant: no config file was created (no corruption left behind).
+	if _, statErr := os.Stat(configPath); !os.IsNotExist(statErr) {
+		t.Errorf("expected NO config created on invalid --group, but %s exists (statErr=%v)", configPath, statErr)
 	}
 }
 
