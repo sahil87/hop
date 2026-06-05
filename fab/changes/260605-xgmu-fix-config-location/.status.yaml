@@ -5,17 +5,17 @@ created_by: sahil-noon
 change_type: fix
 issues: []
 progress:
-    intake: ready
-    apply: pending
-    review: pending
-    hydrate: pending
-    ship: pending
-    review-pr: pending
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: active
 plan:
-    generated: false
-    task_count: 0
-    acceptance_count: 0
-    acceptance_completed: 0
+    generated: true
+    task_count: 15
+    acceptance_count: 18
+    acceptance_completed: 18
 confidence:
     certain: 10
     confident: 0
@@ -29,7 +29,23 @@ confidence:
         competence: 85.5
         disambiguation: 81.0
 stage_metrics:
-    intake: {started_at: "2026-06-05T06:40:22Z", driver: fab-new, iterations: 1}
-prs: []
+    intake: {started_at: "2026-06-05T06:40:22Z", driver: fab-new, iterations: 1, completed_at: "2026-06-05T07:52:53Z"}
+    apply: {started_at: "2026-06-05T07:52:53Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-05T08:04:46Z"}
+    review: {started_at: "2026-06-05T08:04:46Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-05T08:08:03Z"}
+    hydrate: {started_at: "2026-06-05T08:08:03Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-05T08:10:52Z"}
+    ship: {started_at: "2026-06-05T08:10:52Z", driver: fab-continue, iterations: 1, completed_at: "2026-06-05T08:13:13Z"}
+    review-pr: {started_at: "2026-06-05T08:13:13Z", driver: git-pr, iterations: 1}
+prs:
+    - https://github.com/sahil87/hop/pull/36
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-06-05T08:10:52Z"
+    computed_at_stage: hydrate
 # true_impact: lazily created on first apply-finish (no placeholder here).
-last_updated: 2026-06-05T07:03:40Z
+last_updated: 2026-06-05T08:13:13Z

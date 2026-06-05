@@ -213,8 +213,8 @@ func TestWriteStarterRefusesOverwrite(t *testing.T) {
 	if !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("expected 'already exists' message, got %q", err.Error())
 	}
-	if !strings.Contains(err.Error(), "$HOP_CONFIG") {
-		t.Errorf("expected $HOP_CONFIG in error, got %q", err.Error())
+	if !strings.Contains(err.Error(), "Delete it first to recreate it.") {
+		t.Errorf("expected new 'Delete it first' wording, got %q", err.Error())
 	}
 
 	got, _ := os.ReadFile(target)

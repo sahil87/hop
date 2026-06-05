@@ -1,6 +1,6 @@
 # hop config — locator and operations registry.
-# Edit to add repos. Tip: set $HOP_CONFIG to a tracked path (dotfiles, Dropbox)
-# so this config moves with you across machines.
+# Edit to add repos. Tip: to sync this config across machines, keep it in your
+# dotfiles and symlink ~/.config/hop/hop.yaml to it.
 #
 # Two ways to add a repo:
 #   1. Append a URL to a flat group (default) — convention applies:

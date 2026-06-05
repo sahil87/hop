@@ -266,7 +266,7 @@ func validateUniqueURLs(cfg *Config, path string) error {
 // File mode is 0644 (per docs/specs/config-resolution.md Design Decision 3).
 func WriteStarter(path string) error {
 	if _, err := os.Stat(path); err == nil {
-		return fmt.Errorf("hop config init: %s already exists. Delete it first or set $HOP_CONFIG to a different path.", path)
+		return fmt.Errorf("hop config init: %s already exists. Delete it first to recreate it.", path)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("hop config init: stat %s: %w", path, err)
 	}

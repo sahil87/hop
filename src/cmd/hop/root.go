@@ -11,9 +11,7 @@ const rootLong = `hop — locate, open, and operate on repos from hop.yaml.
 Getting started:
   1. Run ` + "`hop config init`" + ` to create a starter hop.yaml.
   2. Edit it to list your repos (each entry: name + git URL + parent dir).
-  3. Optional: set $HOP_CONFIG in your shell rc to point at a tracked file
-     (git-tracked dotfile, Dropbox, etc.) so it follows you across machines.
-  4. For interactive use, install the shim: eval "$(hop shell-init zsh)"
+  3. For interactive use, install the shim: eval "$(hop shell-init zsh)"
 
 Cheat sheet:
   hop                       fzf picker, print selection
@@ -66,7 +64,7 @@ Notes:
   - On ambiguous or no-match queries, fzf opens prefilled with your query.
   - Grammar: first positional is a repo OR a subcommand (mutually exclusive). When it's
     a repo, second positional is a verb (` + "`cd`, `where`, `open`" + `), ` + "`-R`" + `, or a tool name.
-  - Config search order: $HOP_CONFIG, then $XDG_CONFIG_HOME/hop/hop.yaml, then $HOME/.config/hop/hop.yaml.`
+  - Config lives at ~/.config/hop/hop.yaml.`
 
 // bareNameHint is the exact stderr line printed when the binary is invoked
 // with a single positional (the bare-name `hop <name>` shorthand for `hop <name> cd`).

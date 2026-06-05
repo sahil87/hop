@@ -109,7 +109,11 @@ func runRm(cmd *cobra.Command, cmdName string, stale bool, name string) error {
 	if err != nil {
 		bootstrap, werr := config.ResolveWriteTarget()
 		if werr != nil {
-			bootstrap = "$XDG_CONFIG_HOME/hop/hop.yaml"
+			// The config path can't even be computed (only happens when $HOME
+			// is unset). Surface the original resolver error so the user gets
+			// the actionable cause instead of a misleading "no hop.yaml found".
+			fmt.Fprintf(stderr, "%s: %v\n", cmdName, err)
+			return errSilent
 		}
 		fmt.Fprintf(stderr, "%s: no hop.yaml found at %s.\nRun 'hop config init' first, then re-run rm.\n", cmdName, bootstrap)
 		return errSilent

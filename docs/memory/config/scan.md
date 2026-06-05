@@ -38,7 +38,7 @@ Exit 2. No `git` invocation occurs on a failed validation (Constitution I).
 
 ## `hop.yaml` precondition
 
-Before walking, the subcommand calls `config.Resolve()` to locate `hop.yaml`. If `Resolve()` returns an error (no config found, or `$HOP_CONFIG` set but missing), scan emits a scan-specific stderr message in place of the resolver's default text:
+Before walking, the subcommand calls `config.Resolve()` to locate `hop.yaml`. If `Resolve()` returns an error (no config at the fixed `~/.config/hop/hop.yaml`, or `$HOME` unset), scan emits a scan-specific stderr message in place of the resolver's default text:
 
 ```
 hop config scan: no hop.yaml found at <bootstrap-path>.

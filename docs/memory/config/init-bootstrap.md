@@ -8,7 +8,7 @@ How `hop config init` and `hop config where` behave. Implemented in `src/cmd/hop
 2. Calls `config.WriteStarter(target)`:
    - If target exists → returns:
      ```
-     hop config init: <path> already exists. Delete it first or set $HOP_CONFIG to a different path.
+     hop config init: <path> already exists. Delete it first to recreate it.
      ```
      Exit 1. Existing file is untouched.
    - Creates parent dir via `os.MkdirAll(dir, 0o755)` if absent.
@@ -17,9 +17,9 @@ How `hop config init` and `hop config where` behave. Implemented in `src/cmd/hop
 4. Stderr (two lines):
    ```
    Edit the file to add your repos, or run `hop config scan <dir>` to populate from existing on-disk repos.
-   Tip: set $HOP_CONFIG in your shell rc to point at a version-tracked location (a git-tracked dotfile, Dropbox, etc.) so this config moves with you across machines.
+   Tip: to sync this config across machines, keep it in your dotfiles and symlink ~/.config/hop/hop.yaml to it.
    ```
-   The first line surfaces `hop config scan` for onboarding discoverability — without it, scan is invisible to new users. The `Tip:` line is preserved verbatim from the pre-scan wording.
+   The first line surfaces `hop config scan` for onboarding discoverability — without it, scan is invisible to new users. The `Tip:` line gives symlink-based sync guidance: since the config now lives at a single fixed path (no `$HOP_CONFIG` override), dotfile sync is achieved by symlinking that path to a tracked file (change `260605-xgmu-fix-config-location`).
 5. Exit 0.
 
 The `0644` mode is intentional: the file contains repo paths and public git URLs — no credentials. Treating it as sensitive (0600) would be theater.
@@ -30,8 +30,8 @@ Stored verbatim at `src/internal/config/starter.yaml` and pulled in via `//go:em
 
 ```yaml
 # hop config — locator and operations registry.
-# Edit to add repos. Tip: set $HOP_CONFIG to a tracked path (dotfiles, Dropbox)
-# so this config moves with you across machines.
+# Edit to add repos. Tip: to sync this config across machines, keep it in your
+# dotfiles and symlink ~/.config/hop/hop.yaml to it.
 #
 # Two ways to add a repo:
 #   1. Append a URL to a flat group (default) — convention applies:
@@ -58,7 +58,7 @@ The starter parses cleanly under the new schema validator (verified by `TestStar
 
 ## `hop config where`
 
-Prints `config.ResolveWriteTarget()` to stdout. Exit 0 unless nothing resolves at all (no env vars, no `$HOME`). Never errors on missing file — it's a debug aid, not a load.
+Prints `config.ResolveWriteTarget()` to stdout. Exit 0 unless `$HOME` is unset (the only case `ResolveWriteTarget()` can error). Never errors on missing file — it's a debug aid, not a load.
 
 Renamed from v0.0.1's `hop config path` for voice-fit consistency with the locator's `hop where`. Both `init` and `where` are exempt from the standard "load `hop.yaml` first" flow; they run cleanly even when no config exists yet.
 

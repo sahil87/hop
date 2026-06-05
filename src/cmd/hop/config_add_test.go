@@ -17,12 +17,7 @@ func fakeGitNotFound(ctx context.Context, dir string, args ...string) ([]byte, e
 }
 
 func TestConfigAddDirNotADirectory(t *testing.T) {
-	dir := t.TempDir()
-	yaml := filepath.Join(dir, "hop.yaml")
-	if err := os.WriteFile(yaml, []byte("repos:\n  default: []\n"), 0o644); err != nil {
-		t.Fatalf("setup: %v", err)
-	}
-	t.Setenv("HOP_CONFIG", yaml)
+	writeReposFixture(t, "repos:\n  default: []\n")
 
 	missing := "/no/such/path-add-test-xyz"
 	_, stderr, err := runArgs(t, "config", "add", missing)
@@ -37,10 +32,10 @@ func TestConfigAddDirNotADirectory(t *testing.T) {
 }
 
 func TestConfigAddMissingHopYaml(t *testing.T) {
-	clearConfigEnv(t)
-	dir := t.TempDir()
-	missing := filepath.Join(dir, "no-such-hop.yaml")
-	t.Setenv("HOP_CONFIG", missing)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	// No config file written — the fixed path does not exist.
+	missing := filepath.Join(home, ".config", "hop", "hop.yaml")
 
 	addDir := t.TempDir()
 	_, stderr, err := runArgs(t, "config", "add", addDir)
@@ -57,13 +52,8 @@ func TestConfigAddMissingHopYaml(t *testing.T) {
 }
 
 func TestConfigAddNonGitDirIsForgiving(t *testing.T) {
-	dir := t.TempDir()
-	yaml := filepath.Join(dir, "hop.yaml")
 	original := "repos:\n  default: []\n"
-	if err := os.WriteFile(yaml, []byte(original), 0o644); err != nil {
-		t.Fatalf("setup: %v", err)
-	}
-	t.Setenv("HOP_CONFIG", yaml)
+	yaml := writeReposFixture(t, original)
 
 	// A plain directory with no .git.
 	plain := t.TempDir()
@@ -92,7 +82,6 @@ func TestConfigAddConventionRepoLandsInDefault(t *testing.T) {
 	if err := os.WriteFile(hopYaml, []byte("config:\n  code_root: ~/code\nrepos:\n  default: []\n"), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	t.Setenv("HOP_CONFIG", hopYaml)
 
 	repoDir := filepath.Join(home, "code", "sahil87", "hop")
 	makeRepoDir(t, repoDir)
@@ -133,7 +122,6 @@ func TestConfigAddNonConventionInventsGroup(t *testing.T) {
 	if err := os.WriteFile(hopYaml, []byte("config:\n  code_root: ~/code\nrepos:\n  default: []\n"), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	t.Setenv("HOP_CONFIG", hopYaml)
 
 	// repo at ~/vendor/forks/hop — non-convention; parent basename "forks".
 	repoDir := filepath.Join(home, "vendor", "forks", "hop")
@@ -172,7 +160,6 @@ func TestConfigAddAlreadyRegisteredIsIdempotent(t *testing.T) {
 	if err := os.WriteFile(hopYaml, []byte(original), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	t.Setenv("HOP_CONFIG", hopYaml)
 
 	repoDir := filepath.Join(home, "code", "sahil87", "hop")
 	makeRepoDir(t, repoDir)
@@ -201,12 +188,7 @@ func TestConfigAddAlreadyRegisteredIsIdempotent(t *testing.T) {
 // drives the canonical top-level `hop add`, asserting the per-path stderr
 // prefix is `hop add:` (NOT `hop config add:`) — Assumption 8 / R8.
 func TestTopLevelAddDirNotADirectory(t *testing.T) {
-	dir := t.TempDir()
-	yaml := filepath.Join(dir, "hop.yaml")
-	if err := os.WriteFile(yaml, []byte("repos:\n  default: []\n"), 0o644); err != nil {
-		t.Fatalf("setup: %v", err)
-	}
-	t.Setenv("HOP_CONFIG", yaml)
+	writeReposFixture(t, "repos:\n  default: []\n")
 
 	missing := "/no/such/path-topadd-test-xyz"
 	_, stderr, err := runArgs(t, "add", missing)
@@ -238,7 +220,6 @@ func TestTopLevelAddConventionRepoLandsInDefault(t *testing.T) {
 	if err := os.WriteFile(hopYaml, []byte("config:\n  code_root: ~/code\nrepos:\n  default: []\n"), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	t.Setenv("HOP_CONFIG", hopYaml)
 
 	repoDir := filepath.Join(home, "code", "sahil87", "hop")
 	makeRepoDir(t, repoDir)
@@ -274,7 +255,6 @@ func TestConfigAddGitMissingPropagates(t *testing.T) {
 	if err := os.WriteFile(hopYaml, []byte("repos:\n  default: []\n"), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	t.Setenv("HOP_CONFIG", hopYaml)
 
 	repoDir := filepath.Join(home, "code", "owner", "x")
 	makeRepoDir(t, repoDir)

@@ -29,6 +29,23 @@ func buildBinary(t *testing.T) string {
 	return bin
 }
 
+// writeHopYamlHome creates an isolated HOME temp dir, writes the given hop.yaml
+// body to <home>/.config/hop/hop.yaml (the single fixed config path), and
+// returns the HOME dir. Subprocess tests pass it via "HOME="+home in cmd.Env
+// (appended after os.Environ() so it overrides the inherited HOME).
+func writeHopYamlHome(t *testing.T, body string) string {
+	t.Helper()
+	home := t.TempDir()
+	path := filepath.Join(home, ".config", "hop", "hop.yaml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir config dir: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("write hop.yaml: %v", err)
+	}
+	return home
+}
+
 func TestIntegrationVersion(t *testing.T) {
 	bin := buildBinary(t)
 	out, err := exec.Command(bin, "--version").CombinedOutput()
@@ -77,23 +94,18 @@ func TestIntegrationCdHint(t *testing.T) {
 
 func TestIntegrationWhereAndLs(t *testing.T) {
 	bin := buildBinary(t)
-	dir := t.TempDir()
-	yaml := filepath.Join(dir, "hop.yaml")
-	body := `repos:
+	home := writeHopYamlHome(t, `repos:
   default:
     dir: /tmp/integration-test
     urls:
       - git@github.com:sahil87/alpha.git
       - git@github.com:sahil87/beta.git
       - git@github.com:sahil87/gamma.git
-`
-	if err := os.WriteFile(yaml, []byte(body), 0o644); err != nil {
-		t.Fatalf("setup: %v", err)
-	}
+`)
 
 	// `hop alpha where` — repo-verb grammar (replaces v0.x `hop where alpha`).
 	cmd := exec.Command(bin, "alpha", "where")
-	cmd.Env = append(os.Environ(), "HOP_CONFIG="+yaml)
+	cmd.Env = append(os.Environ(), "HOME="+home)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("hop alpha where: %v\noutput: %s", err, out)
@@ -104,7 +116,7 @@ func TestIntegrationWhereAndLs(t *testing.T) {
 
 	// `hop ls`
 	cmd = exec.Command(bin, "ls")
-	cmd.Env = append(os.Environ(), "HOP_CONFIG="+yaml)
+	cmd.Env = append(os.Environ(), "HOME="+home)
 	out, err = cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("hop ls: %v\noutput: %s", err, out)
@@ -133,23 +145,19 @@ func TestIntegrationShellInitZsh(t *testing.T) {
 func TestIntegrationDashR(t *testing.T) {
 	bin := buildBinary(t)
 	dir := t.TempDir()
-	yaml := filepath.Join(dir, "hop.yaml")
-	body := `repos:
+	home := writeHopYamlHome(t, `repos:
   default:
-    dir: ` + dir + `
+    dir: `+dir+`
     urls:
       - git@github.com:sahil87/probe.git
-`
-	if err := os.WriteFile(yaml, []byte(body), 0o644); err != nil {
-		t.Fatalf("setup: %v", err)
-	}
+`)
 	// Make the resolved path actually exist so the child has a valid Dir.
 	if err := os.MkdirAll(filepath.Join(dir, "probe"), 0o755); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
 
 	cmd := exec.Command(bin, "-R", "probe", "pwd")
-	cmd.Env = append(os.Environ(), "HOP_CONFIG="+yaml)
+	cmd.Env = append(os.Environ(), "HOME="+home)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("hop -R probe pwd: %v\noutput: %s", err, out)
@@ -277,7 +285,6 @@ func TestIntegrationConfigScanPrintMode(t *testing.T) {
 	cmd := exec.Command(bin, "config", "scan", scanRoot)
 	cmd.Env = append(os.Environ(),
 		"HOME="+home,
-		"HOP_CONFIG="+hopYaml,
 		"PATH="+binDir+":"+os.Getenv("PATH"),
 	)
 	var stdout, stderr strings.Builder
@@ -346,7 +353,6 @@ func TestIntegrationConfigScanWriteMode(t *testing.T) {
 	cmd := exec.Command(bin, "config", "scan", scanRoot, "--write")
 	cmd.Env = append(os.Environ(),
 		"HOME="+home,
-		"HOP_CONFIG="+hopYaml,
 		"PATH="+binDir+":"+os.Getenv("PATH"),
 	)
 	var stdout, stderr strings.Builder
@@ -406,7 +412,6 @@ func TestIntegrationTopLevelAddRm(t *testing.T) {
 	})
 	env := append(os.Environ(),
 		"HOME="+home,
-		"HOP_CONFIG="+hopYaml,
 		"PATH="+binDir+":"+os.Getenv("PATH"),
 	)
 
@@ -525,16 +530,12 @@ func TestIntegrationShellInitBashSourceable(t *testing.T) {
 
 	bin := buildBinary(t)
 	dir := t.TempDir()
-	yaml := filepath.Join(dir, "hop.yaml")
-	body := `repos:
+	home := writeHopYamlHome(t, `repos:
   default:
-    dir: ` + dir + `
+    dir: `+dir+`
     urls:
       - git@github.com:sahil87/probe.git
-`
-	if err := os.WriteFile(yaml, []byte(body), 0o644); err != nil {
-		t.Fatalf("setup: %v", err)
-	}
+`)
 
 	// Eval the shim, then call `hop <name> where` (the new $2-verb form), and
 	// verify the function-wrapped call resolves correctly. The shim's $2 == where
@@ -546,7 +547,7 @@ func TestIntegrationShellInitBashSourceable(t *testing.T) {
 hop probe where`
 	cmd := exec.Command(bashPath, "--noprofile", "--norc", "-c", script)
 	cmd.Env = append(os.Environ(),
-		"HOP_CONFIG="+yaml,
+		"HOME="+home,
 		"PATH="+binDir+":"+os.Getenv("PATH"),
 	)
 	out, err := cmd.CombinedOutput()
@@ -615,16 +616,12 @@ func TestIntegrationWorktreeResolution(t *testing.T) {
 		t.Fatalf("evalsymlinks: %v", err)
 	}
 
-	yaml := filepath.Join(parent, "hop.yaml")
-	body := fmt.Sprintf(`repos:
+	home := writeHopYamlHome(t, fmt.Sprintf(`repos:
   default:
     dir: %s
     urls:
       - git@github.com:sahil87/outbox.git
-`, parent)
-	if err := os.WriteFile(yaml, []byte(body), 0o644); err != nil {
-		t.Fatalf("write yaml: %v", err)
-	}
+`, parent))
 
 	listJSON := fmt.Sprintf(`[
   {"name":"main","branch":"main","path":"%s","is_main":true,"is_current":false,"dirty":false,"unpushed":0},
@@ -633,7 +630,7 @@ func TestIntegrationWorktreeResolution(t *testing.T) {
 	binDir := writeFakeWtListShim(t, map[string]string{"outbox": listJSON})
 
 	env := append(os.Environ(),
-		"HOP_CONFIG="+yaml,
+		"HOME="+home,
 		"PATH="+binDir+":"+os.Getenv("PATH"),
 	)
 

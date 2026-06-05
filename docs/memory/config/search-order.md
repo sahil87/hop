@@ -2,47 +2,58 @@
 
 How `hop.yaml` is located on every invocation. Implemented in `src/internal/config/resolve.go`.
 
-Two entry points:
+There is no search *order* anymore: the config lives at a **single fixed path**, `$HOME/.config/hop/hop.yaml`. The only environment input is `$HOME` (unavoidable, to build the path). No `$HOP_CONFIG`, no `$XDG_CONFIG_HOME` — both env-var overrides were removed in change `260605-xgmu-fix-config-location`, so the path is identical on macOS and Linux by construction. There is no caching — the path is re-derived and re-stat'd on every invocation (Constitution Principle II "No Database").
 
-- `Resolve() (string, error)` — used by every load path. Hard-errors on misconfig.
-- `ResolveWriteTarget() (string, error)` — used by `hop config init` and `hop config where`. Returns the path that *would* be used regardless of file existence; never hard-errors on missing file.
+Two entry points share one `configPath()` helper:
 
-## Search order (both functions)
+- `Resolve() (string, error)` — used by every load path. Stats the fixed path; returns it if present, else a not-found error.
+- `ResolveWriteTarget() (string, error)` — used by `hop config init` and `hop config where`. Returns the path that *would* be used regardless of file existence (no stat).
 
-1. `$HOP_CONFIG` if set and non-empty
-2. `$XDG_CONFIG_HOME/hop/hop.yaml` if `$XDG_CONFIG_HOME` is set
-3. `$HOME/.config/hop/hop.yaml`
+## `configPath()` helper (shared)
 
-The first candidate that resolves wins. There is no caching — re-resolved on every invocation (Constitution Principle II "No Database").
+`configPath() (string, error)` (unexported) builds the single fixed location:
+
+```go
+home := os.Getenv("HOME")
+if home == "" {
+    return "", fmt.Errorf("hop: $HOME is not set; cannot locate config")
+}
+return filepath.Join(home, ".config", "hop", "hop.yaml"), nil
+```
+
+The literal `filepath.Join` construction is deliberate: `os.UserConfigDir()` was **rejected** because it resolves to `~/Library/Application Support` on macOS, which would defeat the cross-platform-identical goal. The only failure mode is `$HOME` unset.
 
 ## `Resolve()` semantics
 
-- Candidate 1: if `$HOP_CONFIG` is set and the file exists → return it. If set but file missing → hard error (do **not** fall through):
+- Calls `configPath()`, then `os.Stat`s the result.
+- File exists → return the path, nil.
+- `os.IsNotExist` → not-found error:
   ```
-  hop: $HOP_CONFIG points to <path>, which does not exist. Set $HOP_CONFIG to an existing file or unset it.
+  hop: no hop.yaml found at <path>. Run 'hop config init' to create one.
   ```
-  Setting an env var is intent; falling through would mask config bugs.
-- Candidates 2 and 3: each `os.Stat` checked. Missing → fall to next candidate (no error).
-- All three exhausted → return (the bootstrap path is resolved to an absolute path via `ResolveWriteTarget` — `$XDG_CONFIG_HOME/hop/hop.yaml` if set, else `$HOME/.config/hop/hop.yaml`):
-  ```
-  hop: no hop.yaml found. Set $HOP_CONFIG to a tracked file (e.g., a Dropbox path or a git-tracked dotfile), or run 'hop config init' to bootstrap one at /Users/you/.config/hop/hop.yaml.
-  ```
+  where `<path>` is the resolved fixed path (e.g., `/Users/you/.config/hop/hop.yaml`).
+- Any other stat error → wrapped as `hop: stat <path>: <err>`.
+- `$HOME` unset → propagates `configPath()`'s `hop: $HOME is not set; cannot locate config`.
 - Sentinel `ErrNoConfig` is exported but the actual returned errors use `fmt.Errorf` with the exact messages above (callers don't currently `errors.Is` the sentinel).
+
+There is no `$HOP_CONFIG` set-but-missing hard error — that branch was deleted along with the env var. Setting `$HOP_CONFIG` or `$XDG_CONFIG_HOME` to anything (including a bad path) has no effect: only the fixed-path not-found error can fire.
 
 ## `ResolveWriteTarget()` semantics
 
-Identical search order, but:
-
-- Returns candidate 1 even when the file does not exist (no `os.Stat`).
-- Returns candidate 2 / 3 paths without `os.Stat` checks — the caller (`hop config init`) writes there and creates parents as needed; `hop config where` just prints the path.
-- Errors only when nothing resolves at all (no `$HOP_CONFIG`, no `$XDG_CONFIG_HOME`, no `$HOME`):
+- Returns `configPath()` directly — **no `os.Stat`** — so `init`/`where` get the path regardless of whether the file exists.
+- Kept as a distinct exported function (wrapping `configPath()`) so the no-stat-vs-stat seam `init`/`where` rely on is preserved (intake Assumption 10).
+- Errors only when `$HOME` is unset (propagated from `configPath()`):
   ```
-  hop: no config path resolvable. Set $HOP_CONFIG or ensure $XDG_CONFIG_HOME or $HOME is set.
+  hop: $HOME is not set; cannot locate config
   ```
 
 ## No fallback to legacy paths
 
-The previous v0.0.1 search order (`$REPOS_YAML`, `$XDG_CONFIG_HOME/repo/repos.yaml`, `$HOME/.config/repo/repos.yaml`) is **gone**. There is no fallback chain. A user with a v0.0.1 `repos.yaml` will see "no hop.yaml found" until they `cp` and edit it to the new schema (and new path).
+The previous v0.0.1 search order (`$REPOS_YAML`, `$XDG_CONFIG_HOME/repo/repos.yaml`, `$HOME/.config/repo/repos.yaml`) is **gone**, and so is the later `$HOP_CONFIG` → `$XDG_CONFIG_HOME/hop/hop.yaml` → `$HOME/.config/hop/hop.yaml` chain. There is exactly one path and no fallback chain. A user with a v0.0.1 `repos.yaml`, or anyone who relied on `$HOP_CONFIG` / a non-default `$XDG_CONFIG_HOME` to relocate the file, will see "no hop.yaml found at `$HOME/.config/hop/hop.yaml`" until they place (or symlink) their config at the fixed path.
+
+## Design Decisions
+
+1. **Single fixed path, zero env-var overrides** (change `260605-xgmu-fix-config-location`): `$HOP_CONFIG` and `$XDG_CONFIG_HOME` branching (and the `$HOP_CONFIG` set-but-missing hard error) were removed entirely. *Why*: env vars exported from `.zshrc` are unset in non-login / AI / CI shells, so the env-driven path made `hop` unusable in exactly those automation contexts. A literal home-relative path is environment-independent and identical across darwin/linux. Dotfile sync still works — symlink `~/.config/hop/hop.yaml` to a tracked file. This is a clean break (no migration shim), consistent with the prior `$REPOS_YAML` removal.
 
 ## Cross-references
 

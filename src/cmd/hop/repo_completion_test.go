@@ -95,8 +95,8 @@ func TestCompletionCloneSuppressesOnURLPrefix(t *testing.T) {
 }
 
 func TestCompletionMissingConfigIsSilent(t *testing.T) {
-	clearConfigEnv(t)
-	t.Setenv("HOP_CONFIG", "/this/does/not/exist.yaml")
+	// Isolate $HOME to an empty dir so the fixed config path does not resolve.
+	t.Setenv("HOME", t.TempDir())
 
 	// A missing config must NOT surface an error during completion AND must
 	// not leak any positional candidates — tab-completion errors are
