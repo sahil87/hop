@@ -116,8 +116,8 @@ func TestWalkFindsConventionLayout(t *testing.T) {
 	canonRepo := canon(t, repoDir)
 
 	runner := newFakeRunner(map[string]fakeResp{
-		keyRemote(canonRepo):                 remoteResp("origin"),
-		keyGetURL(canonRepo, "origin"):       urlResp("git@github.com:sahil87/hop.git"),
+		keyRemote(canonRepo):           remoteResp("origin"),
+		keyGetURL(canonRepo, "origin"): urlResp("git@github.com:sahil87/hop.git"),
 	})
 
 	found, skips, err := Walk(context.Background(), root, Options{Depth: 3, GitRunner: runner.Run})
@@ -165,8 +165,8 @@ func TestWalkNonOriginFirstRemote(t *testing.T) {
 	canonRepo := canon(t, repoDir)
 
 	runner := newFakeRunner(map[string]fakeResp{
-		keyRemote(canonRepo):            remoteResp("gitlab", "fork"),
-		keyGetURL(canonRepo, "gitlab"):  urlResp("git@gitlab.com:owner/x.git"),
+		keyRemote(canonRepo):           remoteResp("gitlab", "fork"),
+		keyGetURL(canonRepo, "gitlab"): urlResp("git@gitlab.com:owner/x.git"),
 	})
 
 	found, _, err := Walk(context.Background(), root, Options{Depth: 3, GitRunner: runner.Run})

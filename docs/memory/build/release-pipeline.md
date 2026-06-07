@@ -127,4 +127,5 @@ These are policy decisions, not deferrals:
 
 - `docs/specs/build-and-release.md` — pre-implementation design intent and behavioral scenarios.
 - `docs/memory/build/local.md` — `just build` / `just install` for local development.
+- `docs/memory/build/ci-pipeline.md` — the push/PR test gate (`ci.yml`); shares this workflow's SHA-pinned actions and `src/`-rooted Go setup, but fires on pushes/PRs (not `v*` tags) and only needs `contents: read`.
 - `docs/memory/cli/subcommands.md` — the binary being released, including its `--version` surface and the hidden [`hop help-dump`](../cli/subcommands.md#hop-help-dump--json-help-tree-contract) producer that shll.ai's scheduled job pulls (see Help reference above).
