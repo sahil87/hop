@@ -24,8 +24,8 @@ Flags:
 
 The single positional `<dir>` is normalized in this order before any further processing, via the shared `config_scan.go::validateConfigDir(userArg, cmdName, stderr)` helper (also called by `hop add` — see [the single-dir sibling note](#hop-add-the-single-dir-sibling)):
 
-1. `filepath.Clean(<dir>)`
-2. `filepath.EvalSymlinks(<cleaned>)` — resolves symlinks. Failure (including ENOENT) → usage error.
+1. `filepath.Abs(<dir>)` — joins a relative argument with the process CWD (and runs `Clean`), so the returned canonical path is always **absolute**. Failure → usage error. (Change `260605-c92v-fix-relative-dir-args` replaced the prior `filepath.Clean` step with `filepath.Abs`; `EvalSymlinks` preserves a relative input as relative, which left `Found.Path` relative and broke group derivation / convention matching — so a bare relative name like `hop add fab-kit` from its parent dir now resolves correctly instead of failing with `cannot derive group name from parent dir '.'`.)
+2. `filepath.EvalSymlinks(<abs>)` — resolves symlinks. Failure (including ENOENT) → usage error.
 3. `os.Stat(<resolved>)` — must indicate a directory; otherwise usage error.
 
 The exact stderr on validation failure (with the user-supplied form, not the cleaned/resolved form):
@@ -240,7 +240,9 @@ type InventedGroup struct {
 - **Classification**: instead of `scan.Walk`, `add` calls the exported single-dir entry point **`scan.ClassifyOne(ctx, canonicalDir, opts) (Found, skipReason string, isRepo bool, err error)`**. `ClassifyOne` wraps the *same* unexported `classifyDir` + `inspectRepo` logic that `Walk` applies per directory (first-match-wins worktree/normal-repo/bare-repo, then `git remote` + `git remote get-url`) — without the DFS scaffolding. It is the smallest exported seam: it does not leak the private `dirClass` enum and it folds in the remote-inspection step the CLI needs (see [package-layout](../architecture/package-layout.md#internalscan) for the exported-seam rationale).
 - **Group assignment + write**: a one-element `[]scan.Found` is fed to the *same* `buildScanPlan` (convention → `default`; else invented group from the slugified parent-dir basename) and applied via the *same* `yamled.MergeScan`. Unlike scan, `add` **writes by default** (no print mode) — the user named a specific directory, so printing would be odd.
 
-Forgiving by design (matches `clone`'s no-op tone): a plain non-git dir, a worktree/bare/no-remote candidate, and an already-registered URL (deduped to an empty plan) are all **no-ops at exit 0** with a stderr message (`hop add: '<dir>' is not a git repo. Nothing to add.` / `... is a <reason> — skipping.` / `<url> already registered in <path>. Nothing to add.` — prefixed `hop config add:` when invoked via the hidden alias). A successful add emits `added: <url>` + `wrote: <path>`. See the [cli/subcommands](../cli/subcommands.md) inventory row for the full exit-code matrix.
+Forgiving by design (matches `clone`'s no-op tone): a plain non-git dir, a worktree/bare/no-remote candidate, and an already-registered URL are all **no-ops at exit 0** with a stderr message (`hop add: '<dir>' is not a git repo. Nothing to add.` / `... is a <reason> — skipping.` / `<url> already registered in <path>. Nothing to add.` — prefixed `hop config add:` when invoked via the hidden alias). A successful add emits `added: <url>` + `wrote: <path>`. See the [cli/subcommands](../cli/subcommands.md) inventory row for the full exit-code matrix.
+
+> **"already registered" is decided explicitly, not by plan-emptiness** (change `260605-c92v-fix-relative-dir-args`). `runAdd` calls a small `urlAlreadyRegistered(cfg, found.URL)` helper — an exact URL match across `cfg.Groups[*].URLs`, mirroring `buildScanPlan`'s `existingURLs` dedup — **before** building the plan, and prints `<url> already registered ... Nothing to add.` only on a genuine duplicate. If the URL is *not* a duplicate but the built plan is still empty (the sole candidate was skipped for a non-dedup reason, e.g. a slugify failure where `buildScanPlan` already emitted a `skip:` line), `runAdd` prints the distinct fallback `'<dir>' could not be registered (see skip above). Nothing to add.` instead — fixing the prior bug where any skip-to-empty-plan was misreported as "already registered."
 
 ## Exit codes
 

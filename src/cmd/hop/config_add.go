@@ -68,7 +68,7 @@ func newConfigAddCmd() *cobra.Command {
 func runAdd(cmd *cobra.Command, cmdName, userArg string) error {
 	stderr := cmd.ErrOrStderr()
 
-	// 1. Validate <dir>: filepath.Clean → EvalSymlinks → os.Stat (directory).
+	// 1. Validate <dir>: filepath.Abs → EvalSymlinks → os.Stat (directory).
 	canonicalDir, ok := validateConfigDir(userArg, cmdName, stderr)
 	if !ok {
 		return &errExitCode{code: 2}
@@ -117,17 +117,27 @@ func runAdd(cmd *cobra.Command, cmdName, userArg string) error {
 		return nil
 	}
 
-	// 5. Build a one-element scan plan (convention → default; else invented).
-	plan, _ := buildScanPlan(cfg, []scan.Found{found}, stderr)
-
-	// 6. Idempotency: a URL already registered anywhere produces an empty plan
-	//    (buildScanPlan drops the dup). No write; report + exit 0.
-	if planIsEmpty(plan) {
+	// 5. Idempotency: report "already registered" ONLY when found.URL is a
+	//    genuine duplicate of an existing entry — determined explicitly here,
+	//    not inferred from an empty plan (a plan is also empty when its only
+	//    candidate was skipped for a non-dedup reason, e.g. a slugify failure).
+	if urlAlreadyRegistered(cfg, found.URL) {
 		fmt.Fprintf(stderr, "%s: %s already registered in %s. Nothing to add.\n", cmdName, found.URL, configPath)
 		return nil
 	}
 
-	// 7. Write by default (Assumption 7).
+	// 6. Build a one-element scan plan (convention → default; else invented).
+	plan, _ := buildScanPlan(cfg, []scan.Found{found}, stderr)
+
+	// 7. If the plan is still empty here, the candidate was skipped for a
+	//    non-dedup reason (buildScanPlan already emitted a `skip:` line). Report
+	//    a no-op WITHOUT claiming prior registration.
+	if planIsEmpty(plan) {
+		fmt.Fprintf(stderr, "%s: '%s' could not be registered (see skip above). Nothing to add.\n", cmdName, userArg)
+		return nil
+	}
+
+	// 8. Write by default (Assumption 7).
 	if err := yamled.MergeScan(configPath, plan); err != nil {
 		fmt.Fprintf(stderr, "%s: write %s: %v\n", cmdName, configPath, err)
 		return errSilent
@@ -147,8 +157,26 @@ func addSkipMessage(cmdName, userArg, skipReason string) string {
 	return fmt.Sprintf("%s: '%s' is a %s — skipping. Nothing to add.", cmdName, userArg, skipReason)
 }
 
-// planIsEmpty reports whether a ScanPlan would add no URLs (every candidate was
-// deduped away). Used for the idempotent "already registered" path.
+// urlAlreadyRegistered reports whether url is already present in any group's URL
+// list. Exact-match (no normalization), mirroring buildScanPlan's existingURLs
+// dedup semantics so add and scan stay consistent. Used by runAdd to decide the
+// "already registered" message before building the plan.
+func urlAlreadyRegistered(cfg *config.Config, url string) bool {
+	for _, g := range cfg.Groups {
+		for _, u := range g.URLs {
+			if u == url {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// planIsEmpty reports whether a ScanPlan would add no URLs. In runAdd the
+// genuine-duplicate case is handled earlier by urlAlreadyRegistered, so a plan
+// that is still empty here means the sole candidate was skipped for a non-dedup
+// reason (e.g. a slugify failure) — backing the "could not be registered"
+// fallback, not the "already registered" path.
 func planIsEmpty(plan yamled.ScanPlan) bool {
 	if len(plan.DefaultURLs) > 0 {
 		return false
