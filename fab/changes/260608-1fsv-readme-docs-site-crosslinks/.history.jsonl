@@ -1,0 +1,14 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-06-08T10:28:35Z"}
+{"args":"Add in-context links from README.md to docs/site/* pages (Install -\u003e install.md, Grammar -\u003e workflows.md) and a command-reference link to https://shll.ai/tools/hop/commands/. Follow-up to the shll.ai README-extraction contract conformance (PR #42). New PR.","cmd":"fab-new","event":"command","ts":"2026-06-08T10:28:35Z"}
+{"delta":"+4.1","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-06-08T10:29:15Z"}
+{"delta":"+0.0","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-06-08T10:29:19Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-06-08T10:30:27Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-06-08T10:30:27Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-06-08T10:31:11Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-06-08T10:32:45Z"}
+{"event":"review","result":"passed","ts":"2026-06-08T10:32:45Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-06-08T10:32:53Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-06-08T10:33:32Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-06-08T10:34:48Z"}
+{"cmd":"git-pr-review","event":"command","ts":"2026-06-08T10:35:53Z"}
+{"event":"review","result":"passed","ts":"2026-06-08T10:38:18Z"}
