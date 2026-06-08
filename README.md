@@ -242,5 +242,7 @@ A flat list (`default` above) uses convention: each URL lands at `<code_root>/<o
 ## Reference
 
 - `hop --help` — full subcommand listing
-- [`docs/specs/cli-surface.md`](docs/specs/cli-surface.md) — canonical CLI contract (every subcommand, exit codes, stdout/stderr conventions, every behavioral scenario)
-- [`docs/specs/config-resolution.md`](docs/specs/config-resolution.md) — config search order and `hop.yaml` schema
+- [Install guide](docs/site/install.md) — install, shell integration, and first-run bootstrap in depth
+- [Workflows deep-dive](docs/site/workflows.md) — the grammar, daily workflows, the shim model, and gotchas
+- [`docs/specs/cli-surface.md`](https://github.com/sahil87/hop/blob/main/docs/specs/cli-surface.md) — canonical CLI contract (every subcommand, exit codes, stdout/stderr conventions, every behavioral scenario)
+- [`docs/specs/config-resolution.md`](https://github.com/sahil87/hop/blob/main/docs/specs/config-resolution.md) — config search order and `hop.yaml` schema
