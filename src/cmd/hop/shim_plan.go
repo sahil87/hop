@@ -197,8 +197,16 @@ func isCompletionToken(tok string) bool {
 // isKnownSubcommand reports whether name is a registered cobra subcommand on the
 // root command (the single source of truth — the shim hard-codes none of these).
 // `help` and `completion` are cobra built-ins and also count as subcommands.
+//
+// It reuses the root command main() already built (rootForCompletion) to avoid
+// rebuilding the whole cobra tree on the shim-plan hot path; only tests and
+// other non-main entrypoints (where rootForCompletion is nil) fall back to
+// newRootCmd().
 func isKnownSubcommand(name string) bool {
-	root := newRootCmd()
+	root := rootForCompletion
+	if root == nil {
+		root = newRootCmd()
+	}
 	for _, c := range root.Commands() {
 		if c.Name() == name {
 			return true

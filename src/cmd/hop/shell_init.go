@@ -25,7 +25,7 @@ import (
 //     plan="$(command hop --shim-plan "$@")" || return $?
 //     and `case` on the first line over the 3 protocol keywords:
 //     CD <path>            → cd -- <path>                  (`hop webapp`, `hop webapp cd`)
-//     RUN_IN_PARENT <path> → cd -- <path>; shift; "$@"     (`hop webapp git pull`, `hop webapp code .`)
+//     RUN_IN_PARENT <path> → cd -- <path>; shift; "$@"; cd back (`hop webapp git pull`, `hop webapp code .`)
 //     PASSTHROUGH          → _hop_passthrough "$@"         (binary owns it: add/rm/clone/ls/
 //     config/update/shell-init/where/open/pull/push/sync/--help/--version/...)
 //
@@ -62,9 +62,16 @@ hop() {
       cd -- "$(printf '%s' "$plan" | sed -n 2p)"
       ;;
     RUN_IN_PARENT)
+      # Run the user's action with cwd set to the repo, then restore the caller's
+      # cwd (README: "returns you to where you started"). We cd into a subshell-free
+      # block, capture the action's exit code, cd back, and propagate that code.
+      local hop_origin="$PWD"
       cd -- "$(printf '%s' "$plan" | sed -n 2p)" || return $?
       shift
       "$@"
+      local hop_rc=$?
+      cd -- "$hop_origin"
+      return $hop_rc
       ;;
     PASSTHROUGH)
       _hop_passthrough "$@"
