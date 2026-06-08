@@ -1,0 +1,51 @@
+id: w2bj
+name: 260608-w2bj-unify-recursive-add
+created: 2026-06-08T03:46:51Z
+created_by: sahil-noon
+change_type: refactor
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 17
+    acceptance_count: 23
+    acceptance_completed: 0
+confidence:
+    certain: 7
+    confident: 5
+    tentative: 0
+    unresolved: 0
+    score: 3.5
+    fuzzy: true
+    dimensions:
+        signal: 92.4
+        reversibility: 66.7
+        competence: 89.8
+        disambiguation: 89.2
+stage_metrics:
+    intake: {started_at: "2026-06-08T03:46:51Z", driver: fab-new, iterations: 1, completed_at: "2026-06-08T03:52:44Z"}
+    apply: {started_at: "2026-06-08T04:17:23Z", driver: fab-fff, iterations: 2, completed_at: "2026-06-08T04:24:58Z"}
+    review: {started_at: "2026-06-08T04:24:58Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-08T04:29:29Z"}
+    hydrate: {started_at: "2026-06-08T04:29:29Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-08T04:40:00Z"}
+    ship: {started_at: "2026-06-08T04:40:00Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-08T04:43:13Z"}
+    review-pr: {started_at: "2026-06-08T04:43:13Z", driver: git-pr, iterations: 1, completed_at: "2026-06-08T04:50:55Z"}
+prs:
+    - https://github.com/sahil87/hop/pull/41
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-06-08T04:40:00Z"
+    computed_at_stage: hydrate
+# true_impact: lazily created on first apply-finish (no placeholder here).
+last_updated: 2026-06-08T04:50:55Z

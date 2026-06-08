@@ -16,10 +16,10 @@ How `hop config init` and `hop config where` behave, plus **auto-init-on-write**
 3. Stdout: `Created <path>`.
 4. Stderr (two lines):
    ```
-   Edit the file to add your repos, or run `hop config scan <dir>` to populate from existing on-disk repos.
+   Edit the file to add your repos, or run `hop add -r <dir>` to populate from existing on-disk repos.
    Tip: to sync this config across machines, keep it in your dotfiles and symlink ~/.config/hop/hop.yaml to it.
    ```
-   The first line surfaces `hop config scan` for onboarding discoverability — without it, scan is invisible to new users. The `Tip:` line gives symlink-based sync guidance: since the config now lives at a single fixed path (no `$HOP_CONFIG` override), dotfile sync is achieved by symlinking that path to a tracked file (change `260605-xgmu-fix-config-location`).
+   The first line surfaces `hop add -r` for onboarding discoverability — without it, the recursive bootstrap is invisible to new users. (The tip was repointed from the deleted `hop config scan <dir>` to `hop add -r <dir>` in change `260608-w2bj-unify-recursive-add`.) The `Tip:` line gives symlink-based sync guidance: since the config now lives at a single fixed path (no `$HOP_CONFIG` override), dotfile sync is achieved by symlinking that path to a tracked file (change `260605-xgmu-fix-config-location`).
 5. Exit 0.
 
 The `0644` mode is intentional: the file contains repo paths and public git URLs — no credentials. Treating it as sensitive (0600) would be theater.
@@ -58,12 +58,11 @@ The starter parses cleanly under the new schema validator (verified by `TestStar
 
 ## Auto-init-on-write (change `260605-44hm-auto-init-on-write`)
 
-The **write-commands** auto-create a minimal `hop.yaml` when it is absent instead of erroring — `init` is no longer a mandatory precondition for them. The three commands that auto-init:
+The **write-commands** auto-create a minimal `hop.yaml` when it is absent instead of erroring — `init` is no longer a mandatory precondition for them. The commands that auto-init (the recursive `config scan --write` row folded into `hop add` when scan was deleted — change `260608-w2bj-unify-recursive-add`; the auto-init set's substance is unchanged):
 
 | Command | Auto-inits when | Source |
 |---|---|---|
-| `hop add <dir>` (and hidden alias `hop config add`) | always (it always writes) | `config_add.go::runAdd` |
-| `hop config scan <dir> --write` | **only** with `--write` (print mode never touches the file, so there's nothing to bootstrap) | `config_scan.go::runConfigScan` |
+| `hop add <dir>` / `hop add -r <dir>` (and hidden alias `hop config add`) | in **write mode** (default; the recursive `-r` breadth still auto-inits) — **print mode** (`-p`, any breadth) never touches the file, so there's nothing to bootstrap | `config_add.go::runAdd` (via `resolveAddConfig`) |
 | `hop clone <url>` | always (a fresh file is needed for path resolution) | `clone.go::cloneURL` |
 
 ### The minimal skeleton (`config.EnsureSkeleton`)
@@ -83,11 +82,11 @@ Auto-init is **announced, not silent**: when `EnsureSkeleton` returns `created==
 
 ### `hop clone <url>` ensure-group step
 
-A fresh `repos: {}` skeleton has **no groups** at all, so `clone`'s target group (default `default`, or `--group <name>`) won't exist yet and `yamled.AppendURL` would return `ErrGroupNotFound`. So `cloneURL` calls `yamled.EnsureGroup(path, group)` — which idempotently adds `<group>: []` under `repos` (synthesizing the `repos` mapping if absent) — **only when `created==true`** (i.e. when *it* just created the skeleton). On a **pre-existing** config it does NOT call `EnsureGroup`, so a typo'd `--group <nonexistent>` still hits `findGroup==nil → error` — `AppendURL`'s `ErrGroupNotFound` typo-catching contract is preserved unchanged. See [cli/subcommands § Ad-hoc URL clone](../cli/subcommands.md#ad-hoc-url-clone) and [scan § hop add](scan.md#hop-add-the-single-dir-sibling). Note: `hop clone --no-add <url>` on a fresh machine **still creates** the config (the skeleton + target group are needed for path resolution); `--no-add` suppresses only the URL write-back, not the file's creation.
+A fresh `repos: {}` skeleton has **no groups** at all, so `clone`'s target group (default `default`, or `--group <name>`) won't exist yet and `yamled.AppendURL` would return `ErrGroupNotFound`. So `cloneURL` calls `yamled.EnsureGroup(path, group)` — which idempotently adds `<group>: []` under `repos` (synthesizing the `repos` mapping if absent) — **only when `created==true`** (i.e. when *it* just created the skeleton). On a **pre-existing** config it does NOT call `EnsureGroup`, so a typo'd `--group <nonexistent>` still hits `findGroup==nil → error` — `AppendURL`'s `ErrGroupNotFound` typo-catching contract is preserved unchanged. See [cli/subcommands § Ad-hoc URL clone](../cli/subcommands.md#ad-hoc-url-clone) and [add-register § -g forced group](add-register.md#-g-forced-group-auto-create) (which reuses the same `yamled.EnsureGroup` helper). Note: `hop clone --no-add <url>` on a fresh machine **still creates** the config (the skeleton + target group are needed for path resolution); `--no-add` suppresses only the URL write-back, not the file's creation.
 
 ### Read-vs-write split
 
-**Read-commands do NOT auto-init.** `hop`, `hop ls`, `hop <name> where`, and `hop config print` (and `hop config scan` *print* mode) keep calling `config.Resolve()` and erroring on absence — they have nothing to write, so silently conjuring an empty config just to then report "no repos" is worse UX than a clear error. The not-found message (refined in this change) names both bootstrap paths:
+**Read-commands do NOT auto-init.** `hop`, `hop ls`, `hop <name> where`, and `hop config print` (and `hop add -p` *print*-mode dry-runs, any breadth) keep calling `config.Resolve()` and erroring on absence — they have nothing to write, so silently conjuring an empty config just to then report "no repos" is worse UX than a clear error. The not-found message (refined in this change) names both bootstrap paths:
 
 ```
 hop: no hop.yaml found at <path>. Run 'hop add <dir>' to register a repo (creates the config), or 'hop config init' for a starter.
@@ -118,7 +117,7 @@ Renamed from v0.0.1's `hop config path` for voice-fit consistency with the locat
 
 ## Cross-references
 
-- Bootstrap-then-populate workflow (`hop config init` followed by `hop config scan <dir>`): [scan](scan.md)
-- Search order shared by `init`, `where`, and `scan`'s precondition check; the refined `Resolve()` not-found message and the read-vs-write split: [search-order](search-order.md)
-- Auto-init wiring per write-command + exit-code changes: [cli/subcommands](../cli/subcommands.md) (`hop add`, `hop config scan`, `hop clone <url>` rows)
-- `yamled.EnsureGroup` (clone's ensure-target-group helper) and `scan --write` precondition: [scan](scan.md)
+- Bootstrap-then-populate workflow (`hop config init` followed by `hop add -r <dir>`, or just `hop add -r <dir>` directly on a fresh machine): [add-register](add-register.md)
+- Search order shared by `init`, `where`, and `add`'s precondition check; the refined `Resolve()` not-found message and the read-vs-write split: [search-order](search-order.md)
+- Auto-init wiring per write-command + exit-code changes: [cli/subcommands](../cli/subcommands.md) (`hop add`, `hop clone <url>` rows)
+- `yamled.EnsureGroup` (clone's ensure-target-group helper, also used by `hop add -g`) and the `hop add` write-mode precondition: [add-register](add-register.md)

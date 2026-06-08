@@ -6,6 +6,6 @@
 | Domain | Description | Memory Files |
 |--------|-------------|------|
 | cli | Command-line surface — selection-first `hop <selection> <action>` grammar, `--shim-plan` protocol shim, subcommands, ad-hoc URL clone, match resolution, plural selection | [subcommands](cli/subcommands.md), [match-resolution](cli/match-resolution.md) |
-| config | hop.yaml search order, grouped schema, bootstrap, and on-disk repo discovery via `hop config scan` | [search-order](config/search-order.md), [yaml-schema](config/yaml-schema.md), [init-bootstrap](config/init-bootstrap.md), [scan](config/scan.md) |
+| config | hop.yaml search order, grouped schema, bootstrap, and on-disk repo registration via `hop add` (single-dir + recursive `-r`) | [search-order](config/search-order.md), [yaml-schema](config/yaml-schema.md), [init-bootstrap](config/init-bootstrap.md), [add-register](config/add-register.md) |
 | architecture | Source tree layout, cobra wiring, pre-cobra `--shim-plan` classifier, shim↔binary protocol boundary, wrapper boundaries | [package-layout](architecture/package-layout.md), [wrapper-boundaries](architecture/wrapper-boundaries.md) |
 | build | Local build pipeline (justfile + scripts), tag-driven release pipeline (GitHub Actions + homebrew-tap), and push/PR CI test gate | [local](build/local.md), [release-pipeline](build/release-pipeline.md), [ci-pipeline](build/ci-pipeline.md) |

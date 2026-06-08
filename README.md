@@ -12,7 +12,7 @@ A small Go CLI that turns one config file (`hop.yaml`) into a personal directory
 - **Substring navigation** — `h web<TAB>` or `hop web` matches `webapp` and `cd`s your shell straight there. No more `cd ~/code/sahil87/webapp`.
 - **Run anything inside a repo, from anywhere** — `hop dotfiles cursor .` opens your dotfiles in Cursor without changing your cwd. Works for any tool, PATH binary, or shell alias: `hop webapp git status`, `hop infra-tf terraform plan`, `hop loom npm test`.
 - **Batch git ops over groups** — `hop --all pull` pulls every cloned repo. `hop work sync` rebases-and-pushes every repo in the `work` group. Group-level fan-out built in.
-- **Bootstrap from disk, not yaml-by-hand** — `hop config scan ~/code` walks your existing clones, reads `git remote`, and populates `hop.yaml` for you. Comment-preserving merges, idempotent re-runs.
+- **Bootstrap from disk, not yaml-by-hand** — `hop add -r ~/code` walks your existing clones, reads `git remote`, and populates `hop.yaml` for you. Comment-preserving merges, idempotent re-runs.
 - **Plays nicely with [`wt`](https://github.com/sahil87/wt)** — `hop <name> open` delegates to wt's app menu, so you get the same "open in editor / terminal / file manager / cd here" experience for every repo in the registry. The `hop <name>/<wt-name>` suffix lands you straight inside a worktree (`h webapp/feat-x` cds you there, `hop webapp/feat-x git status` runs git in it), and `hop ls --trees` shows worktree state across every repo at a glance.
 
 ## The mental model
@@ -94,23 +94,18 @@ This installs the `hop` shell function, the `h` alias, and tab completion. The s
 
 ## First run
 
-Bootstrap a starter `hop.yaml`:
+If you already have repos cloned somewhere, point hop at them — this creates `hop.yaml` for you and registers everything it finds:
 
 ```sh
-hop config init
-hop config where   # show where it lives
+hop add -r ~/code                   # walk ~/code and populate hop.yaml (comments preserved)
+hop add -r -p ~/code                # preview only: print what it would write, change nothing
 ```
 
-The file lives at `~/.config/hop/hop.yaml`. To sync it across machines, keep it in your dotfiles and symlink that path to it.
+`hop add -r` writes by default and auto-creates the config on a fresh machine — there's no separate setup step. The file lives at `~/.config/hop/hop.yaml` (run `hop config where` to confirm). To sync it across machines, keep it in your dotfiles and symlink that path to it.
 
-If you already have repos cloned somewhere, let hop discover them:
+The walk (default depth 3, `--depth N` to override) inspects each git repo's `origin` remote and auto-derives groups: repos whose on-disk path matches the `<code_root>/<org>/<name>` convention land in `default`; repos in non-convention layouts get a group named after their parent directory. Add `-g <name>` to force everything into a named group instead (auto-created if it doesn't exist). Worktrees, submodules, bare repos, and repos with no remote are skipped.
 
-```sh
-hop config scan ~/code              # preview: prints what it would write
-hop config scan ~/code --write      # merge the result into hop.yaml (comments preserved)
-```
-
-Scan walks the directory (default depth 3, `--depth N` to override), inspects each git repo's `origin` remote, and auto-derives groups: repos whose on-disk path matches the `<code_root>/<org>/<name>` convention land in `default`; repos in non-convention layouts get a group named after their parent directory. Worktrees, submodules, bare repos, and repos with no remote are skipped.
+Prefer to start from a hand-edited starter instead? `hop config init` writes an annotated `hop.yaml` you can fill in by hand.
 
 ## Quick tour
 
