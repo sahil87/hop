@@ -176,9 +176,7 @@ func cloneURL(cmd *cobra.Command, url, group string, noAdd, noCD bool, nameOverr
 				return err
 			}
 		}
-		if !noCD {
-			fmt.Fprintln(cmd.OutOrStdout(), path)
-		}
+		writeCDTarget(cmd, path, noCD)
 		return nil
 
 	case stateMissing:
@@ -197,13 +195,29 @@ func cloneURL(cmd *cobra.Command, url, group string, noAdd, noCD bool, nameOverr
 				return err
 			}
 		}
-		if !noCD {
-			fmt.Fprintln(cmd.OutOrStdout(), path)
-		}
+		writeCDTarget(cmd, path, noCD)
 		return nil
 	}
 
 	return nil
+}
+
+// writeCDTarget routes a clone's landed path to the shell shim's unified cd
+// side-channel: when WT_CD_FILE is set (the shim's _hop_passthrough exports it),
+// the path is written there so the parent shell cds after the clone. The path is
+// always also printed to stdout for scripts/CI that bypass the shim. Suppressed
+// entirely when noCD is true. This folds the former clone-specific stdout
+// handoff into the single protocol channel (intake §4).
+func writeCDTarget(cmd *cobra.Command, path string, noCD bool) {
+	if noCD {
+		return
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), path)
+	if cdFile := os.Getenv("WT_CD_FILE"); cdFile != "" {
+		// Best-effort: a write failure just means no cd happens — the path was
+		// already printed to stdout, so the user is not left without feedback.
+		_ = os.WriteFile(cdFile, []byte(path+"\n"), 0o644)
+	}
 }
 
 // findGroup returns a pointer to the named group in cfg, or nil if absent.

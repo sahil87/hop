@@ -12,36 +12,12 @@ import (
 // is identical. Keeping a single fixture avoids drift if the test registry
 // shape ever changes.
 
-func TestPushUsageErrorWhenNoArgsAndNoAll(t *testing.T) {
-	_, _, _ = pullSyncYAMLFixture(t)
-
-	_, _, err := runArgs(t, "push")
-	if err == nil {
-		t.Fatalf("expected usage error")
-	}
-	if !strings.Contains(err.Error(), "missing <name-or-group>") {
-		t.Fatalf("expected missing arg hint, got %q", err.Error())
-	}
-}
-
-func TestPushUsageErrorWhenAllAndPositional(t *testing.T) {
-	_, _, _ = pullSyncYAMLFixture(t)
-
-	_, _, err := runArgs(t, "push", "alpha", "--all")
-	if err == nil {
-		t.Fatalf("expected usage error for --all + positional")
-	}
-	if !strings.Contains(err.Error(), "--all conflicts with positional") {
-		t.Fatalf("expected conflict hint, got %q", err.Error())
-	}
-}
-
 func TestPushSingleNotClonedExitsWithSkipMessage(t *testing.T) {
 	_, defaultDir, _ := pullSyncYAMLFixture(t)
 	// Don't pre-create .git for alpha — it's not cloned.
 	_ = defaultDir
 
-	_, stderr, err := runArgs(t, "push", "alpha")
+	_, stderr, err := runArgs(t, "alpha", "push")
 	if err == nil {
 		t.Fatalf("expected error for not-cloned single repo")
 	}
@@ -55,7 +31,7 @@ func TestPushBatchGroupSkipsNotClonedAndReportsSummary(t *testing.T) {
 	// Neither alpha nor beta has a .git dir — both should be skipped.
 	_ = defaultDir
 
-	_, stderr, err := runArgs(t, "push", "default")
+	_, stderr, err := runArgs(t, "default", "push")
 	if err != nil {
 		t.Fatalf("expected nil err for batch with all-skipped, got %v", err)
 	}
@@ -74,7 +50,7 @@ func TestPushBatchGroupSkipsNotClonedAndReportsSummary(t *testing.T) {
 func TestPushBatchAllIteratesAllRepos(t *testing.T) {
 	_, _, _ = pullSyncYAMLFixture(t)
 
-	_, stderr, err := runArgs(t, "push", "--all")
+	_, stderr, err := runArgs(t, "--all", "push")
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -92,7 +68,7 @@ func TestPushBatchAllIteratesAllRepos(t *testing.T) {
 func TestPushBatchOutputOrderMatchesYAMLSourceOrder(t *testing.T) {
 	_, _, _ = pullSyncYAMLFixture(t)
 
-	_, stderr, _ := runArgs(t, "push", "--all")
+	_, stderr, _ := runArgs(t, "--all", "push")
 	out := stderr.String()
 	idxAlpha := strings.Index(out, "alpha")
 	idxBeta := strings.Index(out, "beta")
@@ -105,7 +81,7 @@ func TestPushBatchOutputOrderMatchesYAMLSourceOrder(t *testing.T) {
 func TestPushBatchGroupOnlyIncludesGroupMembers(t *testing.T) {
 	_, _, _ = pullSyncYAMLFixture(t)
 
-	_, stderr, _ := runArgs(t, "push", "vendor")
+	_, stderr, _ := runArgs(t, "vendor", "push")
 	out := stderr.String()
 	if !strings.Contains(out, "skip: gamma not cloned") {
 		t.Errorf("expected gamma in vendor batch, got: %s", out)
@@ -121,21 +97,24 @@ func TestPushBatchGroupOnlyIncludesGroupMembers(t *testing.T) {
 func TestPushStdoutIsEmpty(t *testing.T) {
 	_, _, _ = pullSyncYAMLFixture(t)
 
-	stdout, _, _ := runArgs(t, "push", "--all")
+	stdout, _, _ := runArgs(t, "--all", "push")
 	if got := stdout.String(); got != "" {
 		t.Fatalf("expected empty stdout, got %q", got)
 	}
 }
 
-func TestPushCobraRejectsTwoPositionals(t *testing.T) {
+// TestPushPluralNoActionErrors verifies a plural group selection with no action
+// is a usage error under the selection-first grammar (replaces the old
+// no-positional and cobra-cap tests, which no longer apply).
+func TestPushPluralNoActionErrors(t *testing.T) {
 	_, _, _ = pullSyncYAMLFixture(t)
 
-	_, _, err := runArgs(t, "push", "alpha", "beta")
+	_, _, err := runArgs(t, "default")
 	if err == nil {
-		t.Fatalf("expected cobra to reject 2 positionals")
+		t.Fatalf("expected usage error for plural selection with no action")
 	}
-	if !strings.Contains(err.Error(), "accepts at most 1 arg") {
-		t.Fatalf("expected cobra MaximumNArgs error, got: %v", err)
+	if !strings.Contains(err.Error(), "plural selection") {
+		t.Fatalf("expected plural-selection hint, got %q", err.Error())
 	}
 }
 
@@ -167,7 +146,7 @@ func TestPushSingleHappyPathAgainstRealGit(t *testing.T) {
 		}
 	}
 
-	stdout, stderr, err := runArgs(t, "push", "source")
+	stdout, stderr, err := runArgs(t, "source", "push")
 	if err != nil {
 		t.Fatalf("hop push source: %v\nstderr: %s", err, stderr.String())
 	}

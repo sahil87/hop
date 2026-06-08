@@ -8,34 +8,25 @@ import (
 	"testing"
 )
 
-func TestSyncUsageErrorWhenNoArgsAndNoAll(t *testing.T) {
+// TestSyncPluralNoActionErrors verifies a plural group selection with no action
+// is a usage error under the selection-first grammar (replaces the old
+// no-positional usage error).
+func TestSyncPluralNoActionErrors(t *testing.T) {
 	_, _, _ = pullSyncYAMLFixture(t)
 
-	_, _, err := runArgs(t, "sync")
+	_, _, err := runArgs(t, "default")
 	if err == nil {
-		t.Fatalf("expected usage error")
+		t.Fatalf("expected usage error for plural selection with no action")
 	}
-	if !strings.Contains(err.Error(), "missing <name-or-group>") {
-		t.Fatalf("expected missing-arg hint, got %q", err.Error())
-	}
-}
-
-func TestSyncUsageErrorWhenAllAndPositional(t *testing.T) {
-	_, _, _ = pullSyncYAMLFixture(t)
-
-	_, _, err := runArgs(t, "sync", "alpha", "--all")
-	if err == nil {
-		t.Fatalf("expected usage error for --all + positional")
-	}
-	if !strings.Contains(err.Error(), "--all conflicts with positional") {
-		t.Fatalf("expected conflict hint, got %q", err.Error())
+	if !strings.Contains(err.Error(), "plural selection") {
+		t.Fatalf("expected plural-selection hint, got %q", err.Error())
 	}
 }
 
 func TestSyncSingleNotClonedExitsWithSkipMessage(t *testing.T) {
 	_, _, _ = pullSyncYAMLFixture(t)
 
-	_, stderr, err := runArgs(t, "sync", "alpha")
+	_, stderr, err := runArgs(t, "alpha", "sync")
 	if err == nil {
 		t.Fatalf("expected error for not-cloned single repo")
 	}
@@ -47,7 +38,7 @@ func TestSyncSingleNotClonedExitsWithSkipMessage(t *testing.T) {
 func TestSyncBatchGroupSkipsAllNotClonedAndReportsSummary(t *testing.T) {
 	_, _, _ = pullSyncYAMLFixture(t)
 
-	_, stderr, err := runArgs(t, "sync", "default")
+	_, stderr, err := runArgs(t, "default", "sync")
 	if err != nil {
 		t.Fatalf("expected nil err for all-skipped batch, got %v", err)
 	}
@@ -66,21 +57,23 @@ func TestSyncBatchGroupSkipsAllNotClonedAndReportsSummary(t *testing.T) {
 func TestSyncStdoutIsEmpty(t *testing.T) {
 	_, _, _ = pullSyncYAMLFixture(t)
 
-	stdout, _, _ := runArgs(t, "sync", "--all")
+	stdout, _, _ := runArgs(t, "--all", "sync")
 	if got := stdout.String(); got != "" {
 		t.Fatalf("expected empty stdout, got %q", got)
 	}
 }
 
-func TestSyncCobraRejectsTwoPositionals(t *testing.T) {
+// TestSyncAllInteractiveRefused verifies an interactive (non-batch) action on a
+// plural selection is refused (replaces the cobra two-positional cap test).
+func TestSyncAllInteractiveRefused(t *testing.T) {
 	_, _, _ = pullSyncYAMLFixture(t)
 
-	_, _, err := runArgs(t, "sync", "alpha", "beta")
+	_, _, err := runArgs(t, "--all", "open")
 	if err == nil {
-		t.Fatalf("expected cobra to reject 2 positionals")
+		t.Fatalf("expected refusal of interactive action on plural selection")
 	}
-	if !strings.Contains(err.Error(), "accepts at most 1 arg") {
-		t.Fatalf("expected cobra MaximumNArgs error, got: %v", err)
+	if !strings.Contains(err.Error(), "not a batch action") {
+		t.Fatalf("expected not-a-batch-action hint, got %v", err)
 	}
 }
 
@@ -182,7 +175,7 @@ func TestSyncCleanTreeRegressionEmitsTodaysLine(t *testing.T) {
 	}
 	configureGitIdentity(t, target)
 
-	_, stderr, err := runArgs(t, "sync", "source")
+	_, stderr, err := runArgs(t, "source", "sync")
 	if err != nil {
 		t.Fatalf("hop sync source: %v\nstderr: %s", err, stderr.String())
 	}
@@ -211,7 +204,7 @@ func TestSyncDirtyTreeAutoCommitsWithDefaultMessage(t *testing.T) {
 	stageInitialTrackedFile(t, target, "tracked.txt")
 	stageDirtyTracked(t, target, "tracked.txt")
 
-	_, stderr, err := runArgs(t, "sync", "source")
+	_, stderr, err := runArgs(t, "source", "sync")
 	if err != nil {
 		t.Fatalf("hop sync source: %v\nstderr: %s", err, stderr.String())
 	}
@@ -247,7 +240,7 @@ func TestSyncDirtyTreeIncludesUntrackedFiles(t *testing.T) {
 	stageDirtyTracked(t, target, "tracked.txt")
 	stageUntracked(t, target, "untracked.txt", "fresh\n")
 
-	_, stderr, err := runArgs(t, "sync", "source")
+	_, stderr, err := runArgs(t, "source", "sync")
 	if err != nil {
 		t.Fatalf("hop sync source: %v\nstderr: %s", err, stderr.String())
 	}
@@ -265,8 +258,11 @@ func TestSyncDirtyTreeIncludesUntrackedFiles(t *testing.T) {
 	}
 }
 
-// TestSyncDirtyTreeCustomMessageOverridesDefault covers spec A3.
-func TestSyncDirtyTreeCustomMessageOverridesDefault(t *testing.T) {
+// TestSyncDirtyTreeUsesDefaultMessage verifies the reoriented `hop <name> sync`
+// auto-commits a dirty tree with the fixed default message. The former
+// `-m/--message` override is dropped in the selection-first form (to set a
+// custom message, commit manually via `hop <name> git commit` first).
+func TestSyncDirtyTreeUsesDefaultMessage(t *testing.T) {
 	tmp := t.TempDir()
 	url, _ := initBareRepoWithCommit(t, tmp)
 	_, defaultDir := fixtureGroup(t, "default", true)
@@ -279,26 +275,23 @@ func TestSyncDirtyTreeCustomMessageOverridesDefault(t *testing.T) {
 	stageInitialTrackedFile(t, target, "tracked.txt")
 	stageDirtyTracked(t, target, "tracked.txt")
 
-	custom := "fix(zsh): reload prompt on chpwd"
-	_, stderr, err := runArgs(t, "sync", "source", "-m", custom)
+	_, stderr, err := runArgs(t, "source", "sync")
 	if err != nil {
-		t.Fatalf("hop sync source -m: %v\nstderr: %s", err, stderr.String())
+		t.Fatalf("hop source sync: %v\nstderr: %s", err, stderr.String())
 	}
 	if !strings.Contains(stderr.String(), "sync: source ✓ committed,") {
 		t.Fatalf("expected committed token, got: %s", stderr.String())
 	}
 
 	msg := gitOutput(t, target, "log", "-1", "--pretty=%B")
-	if !strings.Contains(msg, custom) {
-		t.Fatalf("expected custom message in HEAD, got: %s", msg)
-	}
-	if strings.Contains(msg, "chore: sync via hop") {
-		t.Fatalf("default message must not appear when -m is passed, got: %s", msg)
+	if !strings.Contains(msg, defaultSyncCommitMessage) {
+		t.Fatalf("expected default message %q in HEAD, got: %s", defaultSyncCommitMessage, msg)
 	}
 }
 
-// TestSyncCleanTreeWithMessageHasNoEffect covers spec A4.
-func TestSyncCleanTreeWithMessageHasNoEffect(t *testing.T) {
+// TestSyncCleanTreeHasNoCommit covers the clean-tree path: sync must not
+// auto-commit when the tree is clean (HEAD does not advance).
+func TestSyncCleanTreeHasNoCommit(t *testing.T) {
 	tmp := t.TempDir()
 	url, _ := initBareRepoWithCommit(t, tmp)
 	_, defaultDir := fixtureGroup(t, "default", true)
@@ -311,13 +304,13 @@ func TestSyncCleanTreeWithMessageHasNoEffect(t *testing.T) {
 
 	beforeSHA := gitOutput(t, target, "rev-parse", "HEAD")
 
-	_, stderr, err := runArgs(t, "sync", "source", "-m", "would-be message")
+	_, stderr, err := runArgs(t, "source", "sync")
 	if err != nil {
-		t.Fatalf("hop sync source -m: %v\nstderr: %s", err, stderr.String())
+		t.Fatalf("hop source sync: %v\nstderr: %s", err, stderr.String())
 	}
 	got := stderr.String()
 	if strings.Contains(got, "committed,") {
-		t.Fatalf("clean tree with -m must not produce committed token, got: %s", got)
+		t.Fatalf("clean tree must not produce committed token, got: %s", got)
 	}
 	if !strings.Contains(got, "sync: source ✓") {
 		t.Fatalf("expected success line, got: %s", got)
@@ -326,67 +319,6 @@ func TestSyncCleanTreeWithMessageHasNoEffect(t *testing.T) {
 	afterSHA := gitOutput(t, target, "rev-parse", "HEAD")
 	if beforeSHA != afterSHA {
 		t.Fatalf("HEAD must not advance on clean tree, before=%s after=%s", beforeSHA, afterSHA)
-	}
-}
-
-// TestSyncDirtyTreeMultiLineMessagePassesThrough covers spec scenario
-// "Multi-line `-m` value passes through to git" (assumption #20).
-func TestSyncDirtyTreeMultiLineMessagePassesThrough(t *testing.T) {
-	tmp := t.TempDir()
-	url, _ := initBareRepoWithCommit(t, tmp)
-	_, defaultDir := fixtureGroup(t, "default", true)
-
-	target := filepath.Join(defaultDir, "source")
-	if _, _, err := runArgs(t, "clone", url); err != nil {
-		t.Fatalf("setup clone: %v", err)
-	}
-	configureGitIdentity(t, target)
-	stageInitialTrackedFile(t, target, "tracked.txt")
-	stageDirtyTracked(t, target, "tracked.txt")
-
-	multi := "subject\n\nbody line 1\nbody line 2"
-	_, _, err := runArgs(t, "sync", "source", "-m", multi)
-	if err != nil {
-		t.Fatalf("hop sync source -m multi-line: %v", err)
-	}
-
-	subject := gitOutput(t, target, "log", "-1", "--pretty=%s")
-	if subject != "subject" {
-		t.Errorf("expected subject 'subject', got: %q", subject)
-	}
-	body := gitOutput(t, target, "log", "-1", "--pretty=%b")
-	if !strings.Contains(body, "body line 1") || !strings.Contains(body, "body line 2") {
-		t.Errorf("expected both body lines, got: %q", body)
-	}
-}
-
-// TestSyncDirtyTreeEmptyMessageFailsViaGit covers spec scenario "Empty `-m`
-// value falls back to git's own validation" (assumption #20). Git aborts the
-// commit; hop emits `commit failed:` and skips the rebase/push.
-func TestSyncDirtyTreeEmptyMessageFailsViaGit(t *testing.T) {
-	tmp := t.TempDir()
-	url, _ := initBareRepoWithCommit(t, tmp)
-	_, defaultDir := fixtureGroup(t, "default", true)
-
-	target := filepath.Join(defaultDir, "source")
-	if _, _, err := runArgs(t, "clone", url); err != nil {
-		t.Fatalf("setup clone: %v", err)
-	}
-	configureGitIdentity(t, target)
-	stageInitialTrackedFile(t, target, "tracked.txt")
-	stageDirtyTracked(t, target, "tracked.txt")
-
-	_, stderr, err := runArgs(t, "sync", "source", "-m", "")
-	if err == nil {
-		t.Fatalf("expected non-nil err on empty commit message")
-	}
-	got := stderr.String()
-	if !strings.Contains(got, "sync: source ✗ commit failed:") {
-		t.Fatalf("expected commit-failed line, got: %s", got)
-	}
-	// Sanity: the existing rebase-conflict / push-failed lines must NOT appear.
-	if strings.Contains(got, "rebase conflict") || strings.Contains(got, "push failed:") {
-		t.Fatalf("commit-step failure must not surface downstream errors, got: %s", got)
 	}
 }
 
@@ -414,7 +346,7 @@ func TestSyncDirtyTreePreCommitHookFailureSkipsPushPull(t *testing.T) {
 
 	beforeSHA := gitOutput(t, target, "rev-parse", "HEAD")
 
-	_, stderr, err := runArgs(t, "sync", "source")
+	_, stderr, err := runArgs(t, "source", "sync")
 	if err == nil {
 		t.Fatalf("expected non-nil err on hook failure")
 	}
@@ -489,7 +421,7 @@ func TestSyncRebaseConflictAfterAutoCommit(t *testing.T) {
 		t.Fatalf("dirty tracked.txt: %v", err)
 	}
 
-	_, stderr, err := runArgs(t, "sync", "source")
+	_, stderr, err := runArgs(t, "source", "sync")
 	if err == nil {
 		t.Fatalf("expected non-nil err on rebase conflict")
 	}
@@ -566,7 +498,7 @@ func TestSyncPushFailAfterAutoCommit(t *testing.T) {
 
 	beforeHEAD := gitOutput(t, target, "rev-parse", "HEAD")
 
-	_, stderr, err := runArgs(t, "sync", "source")
+	_, stderr, err := runArgs(t, "source", "sync")
 	if err == nil {
 		t.Fatalf("expected non-nil err on push failure")
 	}
@@ -593,32 +525,6 @@ func TestSyncPushFailAfterAutoCommit(t *testing.T) {
 	headMsg := gitOutput(t, target, "log", "-1", "--pretty=%B")
 	if !strings.Contains(headMsg, "chore: sync via hop") {
 		t.Fatalf("expected auto-commit at HEAD, got: %s", headMsg)
-	}
-}
-
-// TestSyncFlagRejectedOnPush covers spec A5 (push side).
-func TestSyncFlagRejectedOnPush(t *testing.T) {
-	_, _, _ = pullSyncYAMLFixture(t)
-
-	_, _, err := runArgs(t, "push", "alpha", "-m", "anything")
-	if err == nil {
-		t.Fatalf("expected cobra to reject -m on push")
-	}
-	if !strings.Contains(err.Error(), "unknown") {
-		t.Fatalf("expected unknown-flag error, got: %v", err)
-	}
-}
-
-// TestSyncFlagRejectedOnPull covers spec A5 (pull side).
-func TestSyncFlagRejectedOnPull(t *testing.T) {
-	_, _, _ = pullSyncYAMLFixture(t)
-
-	_, _, err := runArgs(t, "pull", "alpha", "-m", "anything")
-	if err == nil {
-		t.Fatalf("expected cobra to reject -m on pull")
-	}
-	if !strings.Contains(err.Error(), "unknown") {
-		t.Fatalf("expected unknown-flag error, got: %v", err)
 	}
 }
 
@@ -712,7 +618,7 @@ func TestSyncBatchMixedCleanDirtyHookFailure(t *testing.T) {
 		t.Fatalf("install gamma hook: %v", err)
 	}
 
-	_, stderr, err := runArgs(t, "sync", "--all")
+	_, stderr, err := runArgs(t, "--all", "sync")
 	if err == nil {
 		t.Fatalf("expected errSilent for batch with one failed repo")
 	}

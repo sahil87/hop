@@ -92,7 +92,7 @@ func writeRepoFixture(t *testing.T, name string) string {
 // without it, a future change setting cmd.Dir = repo.Path would still make
 // wt see ARG2 = repoDir AND silently change wt's working directory.
 func TestOpenPassesRepoPathAsArgToWt(t *testing.T) {
-	repoDir := writeRepoFixture(t, "outbox")
+	repoDir := writeRepoFixture(t, "webapp")
 	logPath := installFakeWt(t, "noop")
 
 	// Chdir to a known temp dir so we can distinguish "binary inherited the
@@ -108,9 +108,9 @@ func TestOpenPassesRepoPathAsArgToWt(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chdir(prevDir) })
 
-	stdout, stderr, err := runArgs(t, "outbox", "open")
+	stdout, stderr, err := runArgs(t, "webapp", "open")
 	if err != nil {
-		t.Fatalf("hop outbox open: %v\nstderr: %s", err, stderr.String())
+		t.Fatalf("hop webapp open: %v\nstderr: %s", err, stderr.String())
 	}
 	if got := stdout.String(); got != "" {
 		t.Errorf("expected empty stdout (binary is a passthrough), got %q", got)
@@ -144,10 +144,10 @@ func TestOpenPassesRepoPathAsArgToWt(t *testing.T) {
 // when wt exits non-zero, AND that hop emits no stdout in that case (the
 // transparent-passthrough contract holds on the failure path too).
 func TestOpenPropagatesNonZeroExitCode(t *testing.T) {
-	writeRepoFixture(t, "outbox")
+	writeRepoFixture(t, "webapp")
 	installFakeWt(t, "fail")
 
-	stdout, _, err := runArgs(t, "outbox", "open")
+	stdout, _, err := runArgs(t, "webapp", "open")
 	if err == nil {
 		t.Fatalf("expected non-nil error from wt fail mode")
 	}
@@ -167,11 +167,11 @@ func TestOpenPropagatesNonZeroExitCode(t *testing.T) {
 // emits a clean stderr hint and exits 1 via errSilent (no traceback, no
 // crash).
 func TestOpenWtMissingExitsSilent(t *testing.T) {
-	writeRepoFixture(t, "outbox")
+	writeRepoFixture(t, "webapp")
 	emptyDir := t.TempDir()
 	t.Setenv("PATH", emptyDir)
 
-	_, stderr, err := runArgs(t, "outbox", "open")
+	_, stderr, err := runArgs(t, "webapp", "open")
 	if !errors.Is(err, errSilent) {
 		t.Fatalf("expected errSilent for missing wt, got %v", err)
 	}
@@ -185,12 +185,12 @@ func TestOpenWtMissingExitsSilent(t *testing.T) {
 // binary — the binary is a transparent passthrough. The wt-failure path's
 // stdout behavior is asserted by TestOpenPropagatesNonZeroExitCode.
 func TestOpenSilentOnSuccess(t *testing.T) {
-	writeRepoFixture(t, "outbox")
+	writeRepoFixture(t, "webapp")
 	installFakeWt(t, "noop")
 
-	stdout, _, err := runArgs(t, "outbox", "open")
+	stdout, _, err := runArgs(t, "webapp", "open")
 	if err != nil {
-		t.Fatalf("hop outbox open: %v", err)
+		t.Fatalf("hop webapp open: %v", err)
 	}
 	if got := stdout.String(); got != "" {
 		t.Fatalf("expected empty stdout (binary passthrough), got %q", got)

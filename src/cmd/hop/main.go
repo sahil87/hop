@@ -4,14 +4,11 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
-
-	"github.com/sahil87/hop/internal/proc"
 )
 
 // version is the binary version, overridden via -ldflags "-X main.version=..." at build time.
@@ -26,90 +23,19 @@ func main() {
 	rootCmd.Version = version
 	rootForCompletion = rootCmd
 
-	// -R must be handled before cobra parses argv: the post-<name> argv is a
-	// child command line, not a hop subcommand. We split os.Args into the hop
-	// portion and the child portion before delegating.
-	if target, child, ok, err := extractDashR(os.Args); ok {
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err.Error())
-			os.Exit(2)
-		}
-		os.Exit(runDashR(target, child))
+	// --shim-plan must be handled before cobra parses argv: the action token
+	// after the selection (e.g. `git pull`, `code .`) is an arbitrary child
+	// command line, not a hop flag/subcommand. We classify the user's argv and
+	// emit the fixed 3-keyword protocol the shell shim interprets (see
+	// shim_plan.go). The shim runs the user's already-parsed words itself —
+	// the binary never execs them (Constitution I: no shell-injection surface).
+	if rest, ok := extractShimPlan(os.Args); ok {
+		os.Exit(runShimPlan(os.Stdout, os.Stderr, rest))
 	}
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(translateExit(err))
 	}
-}
-
-// extractDashR scans args (typically os.Args, including args[0] = binary name)
-// for a `-R` global flag. It returns target (the value), child (everything
-// after the target), ok (whether -R was found), and err (set when -R is
-// present but malformed: missing value or missing child command).
-//
-// Accepted forms:
-//
-//	hop -R <name> <cmd>...
-//	hop -R=<name> <cmd>...
-//
-// args before -R are ignored — -R is treated as a top-level flag with no
-// other hop-side flags currently coexisting.
-func extractDashR(args []string) (target string, child []string, ok bool, err error) {
-	for i := 1; i < len(args); i++ {
-		a := args[i]
-		if a == "-R" {
-			if i+1 >= len(args) {
-				return "", nil, true, fmt.Errorf("hop: -R requires a value. Usage: hop <name> -R <cmd>... (or hop -R <name> <cmd>...)")
-			}
-			target = args[i+1]
-			rest := args[i+2:]
-			if len(rest) == 0 {
-				return target, nil, true, fmt.Errorf("hop: -R requires a command to execute. Usage: hop <name> -R <cmd>... (or hop -R <name> <cmd>...)")
-			}
-			return target, rest, true, nil
-		}
-		if len(a) > 3 && a[:3] == "-R=" {
-			target = a[3:]
-			if target == "" {
-				return "", nil, true, fmt.Errorf("hop: -R requires a value. Usage: hop <name> -R <cmd>... (or hop -R <name> <cmd>...)")
-			}
-			rest := args[i+1:]
-			if len(rest) == 0 {
-				return target, nil, true, fmt.Errorf("hop: -R requires a command to execute. Usage: hop <name> -R <cmd>... (or hop -R <name> <cmd>...)")
-			}
-			return target, rest, true, nil
-		}
-	}
-	return "", nil, false, nil
-}
-
-// runDashR resolves target to a repo directory and execs child[0] with
-// child[1:] as argv there. Stdin/stdout/stderr are inherited. The child's
-// exit code becomes hop's exit code.
-func runDashR(target string, child []string) int {
-	repo, err := resolveByName(target)
-	if err != nil {
-		if errors.Is(err, errFzfMissing) {
-			fmt.Fprintln(os.Stderr, fzfMissingHint)
-			return 1
-		}
-		if errors.Is(err, errFzfCancelled) {
-			return 130
-		}
-		fmt.Fprintln(os.Stderr, err.Error())
-		return 1
-	}
-
-	code, err := proc.RunForeground(context.Background(), repo.Path, child[0], child[1:]...)
-	if err != nil {
-		if errors.Is(err, proc.ErrNotFound) {
-			fmt.Fprintf(os.Stderr, "hop: -R: '%s' not found.\n", child[0])
-			return 1
-		}
-		fmt.Fprintf(os.Stderr, "hop: -R: %v\n", err)
-		return 1
-	}
-	return code
 }
 
 // translateExit maps errors returned from RunE to the spec's exit codes.

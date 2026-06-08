@@ -11,51 +11,9 @@ import (
 	"github.com/sahil87/hop/internal/repos"
 )
 
-// newPushCmd builds the `hop push` subcommand.
-//
-//	hop push [<name-or-group>] [--all]
-//
-// Wraps `git push` over a single repo (substring match), every cloned repo in
-// a named group (exact group match), or every cloned repo in the registry
-// (--all). Mirrors `hop pull` exactly — same signature, flag set, resolution
-// rules, and exit-code policy.
-func newPushCmd() *cobra.Command {
-	var all bool
-	cmd := &cobra.Command{
-		Use:               "push [<name-or-group>] [--all]",
-		Short:             "Run 'git push' in a repo, group, or every cloned repo with --all",
-		Args:              cobra.MaximumNArgs(1),
-		ValidArgsFunction: completeRepoOrGroupNames,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			query := ""
-			if len(args) == 1 {
-				query = args[0]
-			}
-			if all && query != "" {
-				return &errExitCode{code: 2, msg: "hop push: --all conflicts with positional <name-or-group>"}
-			}
-			if !all && query == "" {
-				return &errExitCode{code: 2, msg: "hop push: missing <name-or-group>. Pass a name, a group, or --all."}
-			}
-
-			targets, mode, err := resolveTargets(query, all)
-			if err != nil {
-				if errors.Is(err, errFzfMissing) {
-					fmt.Fprintln(cmd.ErrOrStderr(), fzfMissingHint)
-					return errSilent
-				}
-				return err
-			}
-
-			if mode == modeSingle {
-				return pushSingle(cmd, targets[0])
-			}
-			return pushBatch(cmd, targets)
-		},
-	}
-	cmd.Flags().BoolVar(&all, "all", false, "run 'git push' in every cloned repo from hop.yaml")
-	return cmd
-}
+// push.go wraps `git push`. The selection-first entry point lives in
+// batch_verb.go (`hop <selection> push`); the runners below are shared by the
+// single and batch paths.
 
 // pushSingle handles single-repo mode (rule 3 substring match → one Repo).
 // Skip-not-cloned and push failures both exit 1; success is exit 0.

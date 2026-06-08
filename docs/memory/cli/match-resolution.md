@@ -1,8 +1,10 @@
 # Match Resolution
 
-Algorithm shared by every form that takes a `<name>` argument (`hop` bare picker, `hop <name> where`, `hop <name> cd` via the shim's `_hop_dispatch cd` → `command hop "$2" where`, `hop clone`, `hop -R`, and `hop rm <name>`). Implemented in `src/cmd/hop/resolve.go::resolveByName` and `src/internal/repos/repos.go::MatchOne`.
+Algorithm shared by every form that takes a `<selection>` argument: the `--shim-plan` classifier (`shim_plan.go::emitCD`/`emitRunInParent` call `resolveByName` to resolve the `CD`/`RUN_IN_PARENT` path), `hop` bare picker, `hop <name> where`, `hop clone`, and `hop rm <name>`. Implemented in `src/cmd/hop/resolve.go::resolveByName` and `src/internal/repos/repos.go::MatchOne`.
 
-`hop pull` and `hop sync` use a richer resolver — `resolveTargets` — that prepends an exact group-name match step in front of this same algorithm. See [Name-or-Group Resolution](#name-or-group-resolution) below.
+Under the selection-first grammar (change `gyo0`), the `--shim-plan` classifier is the primary entry point: it resolves the selection to a single repo/worktree path for the `CD` plan (bare `hop <name>`, `hop <name> cd`) and the `RUN_IN_PARENT` plan (tool-form `hop <name> <tool>`). The `where`/`open` verbs reach `resolveByName` via the binary's `PASSTHROUGH` path instead.
+
+The `pull`/`push`/`sync` batch verbs (action tokens, not subcommands) use a richer resolver — `resolveTargets` — that prepends `--all` and exact group-name match steps in front of this same algorithm. See [Name-or-Group Resolution](#name-or-group-resolution) below.
 
 ## Algorithm
 
@@ -22,7 +24,7 @@ Triggered by step 1 when the query contains `/`. Lives in `resolve.go::resolveWo
 1. **Cloned-state guard**: `cloneState(repo.Path)` MUST return `stateAlreadyCloned`. Uncloned repos return `*errExitCode{code: 1, msg: "hop: '<name>' is not cloned. Try: hop clone <name>"}` — `wt list --json` is NEVER invoked against a missing main checkout. This guard applies ONLY to `/`-suffixed queries; bare queries (`hop <name> where` with no `/`) keep their existing permissive behavior of resolving registry paths even for repos that haven't been cloned yet.
 2. **Invoke `wt list --json`** via the package-level `listWorktrees(ctx, repo.Path)` seam in `wt_list.go`. The default seam routes through `internal/proc.RunCapture` with `cmd.Dir = repo.Path` and a 5-second `context.WithTimeout` (matching `internal/scan`'s `git remote` precedent — wt list is a local op with no network round-trip). Unmarshal into `[]WtEntry` (the JSON contract — see [architecture/wrapper-boundaries](../architecture/wrapper-boundaries.md)). The same seam drives four call sites across three features — `resolveWorktreePath` (path resolution, here), `ls.go::runLsTrees` (fan-out for `hop ls --trees`), and two completion paths in `repo_completion.go`: the post-slash `completeWorktreeCandidates` and the root-only pre-slash eager branch in `completeRepoNames` (change `odle`). Tab-completion details — trigger guards, candidate shape, directive composition, silent-fallback contract — live in [subcommands § Repo positional tab completion (`$1`)](subcommands.md#repo-positional-tab-completion-1).
 3. **Match RHS** against each entry's `Name` field: exact equality, case-sensitive. Mirrors the case-sensitive group-name match in `resolveTargets` (wt names are user-curated and intentional; case-insensitive substring would re-introduce ambiguity wt itself avoids). The `hop <name>/main` case naturally resolves to the main checkout's path because wt's JSON entry with `is_main: true` carries that path — no special-case branching in hop.
-4. **Return a shallow-copied `*repos.Repo`** whose `Path` is the matched entry's `Path`; `Name`, `Group`, `URL`, `Dir` are preserved from the LHS-resolved repo (they describe the registry identity, not the on-disk worktree). Every verb downstream (`where`, `cd` via shim, `open`, `-R`, tool-form, `pull`, `push`, `sync`) inherits the worktree path automatically because they all consume `repo.Path`.
+4. **Return a shallow-copied `*repos.Repo`** whose `Path` is the matched entry's `Path`; `Name`, `Group`, `URL`, `Dir` are preserved from the LHS-resolved repo (they describe the registry identity, not the on-disk worktree). Every form downstream inherits the worktree path automatically because they all consume `repo.Path`: the `CD` plan (bare/`cd`), the `RUN_IN_PARENT` plan (tool-form), `where`, `open`, and the `pull`/`push`/`sync` batch verbs.
 
 ### Worktree error paths
 
@@ -31,7 +33,7 @@ Each surfaces as `*errExitCode{code: <n>, msg: <pre-formatted stderr line>}` so 
 | Trigger | Exit code | Stderr line |
 |---|---|---|
 | Empty LHS (`hop /feat-x where`) | 2 | `hop: empty repo name before '/'` |
-| Empty RHS (`hop outbox/ where`) | 2 | `hop: empty worktree name after '/'` |
+| Empty RHS (`hop webapp/ where`) | 2 | `hop: empty worktree name after '/'` |
 | `/`-suffixed query, repo not cloned | 1 | `hop: '<name>' is not cloned. Try: hop clone <name>` |
 | `wt` missing on PATH | 1 | `hop: wt: not found on PATH.` (the `wtMissingHint` constant, shared with `open.go` and `ls.go --trees`) |
 | `wt list --json` non-zero exit or malformed JSON | 1 | `hop: wt list: <err>` (no silent fallback to the main path — unparseable wt output is a real failure) |
@@ -59,8 +61,8 @@ fzf --query <q> --select-1 --height 40% --reverse --with-nth 1 --delimiter '<TAB
 
 ## Cancellation and missing fzf
 
-- Fzf exit 130 (Esc / Ctrl-C) → `proc.Run` returns a non-nil error; `resolveByName` returns `errFzfCancelled` → `translateExit` (or the `-R` path) maps to exit 130.
-- Fzf not on PATH → `proc.ErrNotFound` propagates; `resolveByName` returns `errFzfMissing`. The cobra-friendly wrapper `resolveOne` writes `fzfMissingHint` to `cmd.ErrOrStderr()` and returns `errSilent` (exit 1). The `-R` path writes the hint directly to `os.Stderr`.
+- Fzf exit 130 (Esc / Ctrl-C) → `proc.Run` returns a non-nil error; `resolveByName` returns `errFzfCancelled` → `translateExit` (or the `--shim-plan` path's `shimResolveErr`) maps to exit 130.
+- Fzf not on PATH → `proc.ErrNotFound` propagates; `resolveByName` returns `errFzfMissing`. The cobra-friendly wrapper `resolveOne` writes `fzfMissingHint` to `cmd.ErrOrStderr()` and returns `errSilent` (exit 1). The `--shim-plan` path's `shimResolveErr` writes the hint directly to `os.Stderr`.
 
 ## Why the full list (not the filtered subset) goes to fzf
 
@@ -72,17 +74,27 @@ Sending the unfiltered list with `--query <q>` lets the user clear the query ins
 
 ## Name-or-Group Resolution
 
-Used by `hop pull` and `hop sync`. Implemented in `src/cmd/hop/resolve.go::resolveTargets`. Returns `(repos.Repos, resolveMode, error)` where `resolveMode` is `modeSingle` or `modeBatch` (callers switch on the mode for output formatting and exit-code policy — single-repo failure → exit 1; batch → exit 1 only if any failed).
+Used by the `pull`/`push`/`sync` batch verbs (via `batch_verb.go::runBatchVerb`). Implemented in `src/cmd/hop/resolve.go::resolveTargets(query string, all bool)`. Returns `(repos.Repos, resolveMode, error)` where `resolveMode` is `modeSingle` or `modeBatch` (callers switch on the mode for output formatting and exit-code policy — single-repo failure → exit 1; batch → exit 1 only if any failed).
+
+`resolveTargets` loads the **raw config** (`config.Resolve` → `config.Load`) so it can recognize group names that exist in `hop.yaml` even when their `urls:` list is null/empty (the projected `Repos` slice loses those because `FromConfig` only emits per-URL entries — so `hop <empty-group> pull` resolves as an empty batch rather than falling through to single-repo matching).
 
 Resolution rules — first match wins:
 
-1. **`all == true`** — return every repo in `repos.FromConfig` order; mode is `modeBatch`. Positional argument is ignored at this layer (the calling subcommand rejects `--all` combined with a positional as a usage error before invoking `resolveTargets`).
-2. **Exact group-name match** (case-sensitive) — `hasGroupExact(rs, query)` scans `r.Group` for an exact equality match. If any repo's group equals `query`, return every repo whose `r.Group == query`; mode is `modeBatch`. Case-sensitivity matches `findGroup`'s contract in `clone.go` and `internal/config`'s YAML schema (group keys are user-curated identifiers; `vendor` does NOT match `Vendor`).
+1. **`all == true`** (the `--all` plural selection) — return every repo in `repos.FromConfig` order; mode is `modeBatch`. `query` is ignored (`runBatchVerb` passes `query=""` when `all`).
+2. **Exact group-name match** (case-sensitive) — `hasConfiguredGroup(cfg, query)` scans `cfg.Groups` for a group whose `Name == query`. On a match, return every projected repo whose `r.Group == query`; mode is `modeBatch`. Case-sensitivity matches `findGroup`'s contract in `clone.go` and `internal/config`'s YAML schema (group keys are user-curated identifiers; `vendor` does NOT match `Vendor`). `hasConfiguredGroup` is also the seam the `--shim-plan` classifier reuses (`shim_plan.go::isConfiguredGroupName`) to decide singular-vs-plural selection.
 3. **Substring repo-name match** — fall through to `resolveByName` (case-insensitive substring on `Name` with fzf for ambiguous/zero matches; fzf cancellation maps to `errFzfCancelled` → exit 130, fzf-missing maps to `errFzfMissing` so callers emit `fzfMissingHint`). Returns a one-element `repos.Repos`; mode is `modeSingle`.
 
-`resolveTargets` does not re-load YAML for the group-match step — it inspects the `r.Group` field on the already-projected `repos.Repos` slice from `loadRepos()`, avoiding a second `config.Load` round-trip and reusing `FromConfig`'s path-resolution.
+The simpler `resolveByName` (and its cobra wrapper `resolveOne`) is still used by the `--shim-plan` classifier's `CD`/`RUN_IN_PARENT` path resolution, `hop` (bare picker), `hop <name> where`, `hop clone`'s repo-name argument, and `hop rm <name>` (the positional path — it **strips any `/<worktree>` suffix off `name` first** (`strings.Index(name, "/")`), then calls `resolveOne(cmd, repoName)` and removes the resolved repo directly via `yamled.RemoveURL`, skipping the picker; the suffix is discarded because removal targets a whole registry entry and worktrees are not registry entries — this is the one consumer that intentionally bypasses the worktree-resolution sub-step rather than honoring the suffix). Those forms have a single-repo contract — there is no group concept, no `--all`, so there is nothing to add to the algorithm.
 
-The simpler `resolveByName` (and its cobra wrapper `resolveOne`) is still used by `hop` (bare picker), `hop <name> where`, `hop -R`, `hop clone`'s repo-name argument, and `hop rm <name>` (the new positional path — it **strips any `/<worktree>` suffix off `name` first** (`strings.Index(name, "/")`), then calls `resolveOne(cmd, repoName)` and removes the resolved repo directly via `yamled.RemoveURL`, skipping the picker; the suffix is discarded because removal targets a whole registry entry and worktrees are not registry entries — this is the one consumer that intentionally bypasses the worktree-resolution sub-step rather than honoring the suffix). Those forms have a single-repo contract — there is no group concept, no `--all`, so there is nothing to add to the algorithm.
+### Plural selection (change `gyo0`)
+
+A **plural selection** is `--all` or an exact configured group name at `$1`. It is resolved by `resolveTargets` (rules 1–2 above, both → `modeBatch`), but only a constrained set of actions is permitted: **only the batch verbs `pull`/`push`/`sync`**. The guard lives in two mirrored places — `shim_plan.go::classifyPlural` (shim path) and `root.go::runPluralSelection` (direct-binary path) — so both enforce the same rule:
+
+- plural + batch verb → run the batch machinery (`PASSTHROUGH` to `runBatchVerb`).
+- plural + no action → usage error exit 2 (a plural selection has no single directory to cd into).
+- plural + `where`/`open`/`cd`/a tool → usage error exit 2 (running an interactive action, or resolving a single path, across N repos is nonsensical; `where` is steered to `hop ls`).
+
+This is an allow-list rather than a dynamic "is this action interactive?" heuristic — simpler and safer (plan Design Decision 3).
 
 ### Group-vs-Repo Tiebreaker
 
@@ -95,7 +107,7 @@ When a positional argument exactly equals a group name AND also (case-insensitiv
    - *Rejected*: Substring repo match wins (would force users to escape group names with a `--group` flag); reject with "ambiguous" error (raises the user's resolution cost for a theoretical collision).
 
 2. **Case-sensitive group lookup, case-insensitive repo substring match — change `xj3k`.**
-   - *Why*: Case-sensitivity matches `findGroup` (clone.go) and the YAML schema. Repo-name match stays case-insensitive to preserve the existing `MatchOne` contract — users typing `outbox` should still find `Outbox`.
+   - *Why*: Case-sensitivity matches `findGroup` (clone.go) and the YAML schema. Repo-name match stays case-insensitive to preserve the existing `MatchOne` contract — users typing `webapp` should still find `Outbox`.
 
 3. **Resolver returns a `mode` so callers switch on output and exit-code semantics — change `xj3k`.**
    - *Why*: Without an explicit mode return, each subcommand would re-derive batch-vs-single from `len(targets)`, but a single-mode-with-1-repo case (a unique substring match) needs different exit-code policy than a batch-mode-with-1-repo (a group with one cloned member). The mode keeps the per-subcommand code paths free of `--all` / group-detection leakage.

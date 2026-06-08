@@ -142,7 +142,12 @@ func TestIntegrationShellInitZsh(t *testing.T) {
 	}
 }
 
-func TestIntegrationDashR(t *testing.T) {
+// TestIntegrationShimPlanRunInParent verifies the real binary classifies
+// tool-form (`hop <repo> <tool> ...`) as RUN_IN_PARENT\n<path> via --shim-plan.
+// This is the binary's half of the tool-form contract — the shim cds to <path>
+// then runs the user's words. Replaces the former `-R` integration tests (the
+// -R flag was removed; tool-form is native grammar via the protocol).
+func TestIntegrationShimPlanRunInParent(t *testing.T) {
 	bin := buildBinary(t)
 	dir := t.TempDir()
 	home := writeHopYamlHome(t, `repos:
@@ -151,37 +156,46 @@ func TestIntegrationDashR(t *testing.T) {
     urls:
       - git@github.com:sahil87/probe.git
 `)
-	// Make the resolved path actually exist so the child has a valid Dir.
 	if err := os.MkdirAll(filepath.Join(dir, "probe"), 0o755); err != nil {
 		t.Fatalf("setup: %v", err)
 	}
 
-	cmd := exec.Command(bin, "-R", "probe", "pwd")
+	cmd := exec.Command(bin, "--shim-plan", "probe", "pwd")
 	cmd.Env = append(os.Environ(), "HOME="+home)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("hop -R probe pwd: %v\noutput: %s", err, out)
+		t.Fatalf("hop --shim-plan probe pwd: %v\noutput: %s", err, out)
 	}
-	want := filepath.Join(dir, "probe")
-	if got := strings.TrimSpace(string(out)); got != want {
-		t.Fatalf("expected %q, got %q", want, got)
+	want := "RUN_IN_PARENT\n" + filepath.Join(dir, "probe") + "\n"
+	if string(out) != want {
+		t.Fatalf("expected %q, got %q", want, string(out))
 	}
 }
 
-func TestIntegrationDashRNoCommand(t *testing.T) {
+// TestIntegrationShimPlanCD verifies a bare selection classifies as CD\n<path>
+// through the real binary.
+func TestIntegrationShimPlanCD(t *testing.T) {
 	bin := buildBinary(t)
-	cmd := exec.Command(bin, "-R", "anything")
+	dir := t.TempDir()
+	home := writeHopYamlHome(t, `repos:
+  default:
+    dir: `+dir+`
+    urls:
+      - git@github.com:sahil87/probe.git
+`)
+	if err := os.MkdirAll(filepath.Join(dir, "probe"), 0o755); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	cmd := exec.Command(bin, "--shim-plan", "probe")
+	cmd.Env = append(os.Environ(), "HOME="+home)
 	out, err := cmd.CombinedOutput()
-	if err == nil {
-		t.Fatalf("expected error, got nil")
+	if err != nil {
+		t.Fatalf("hop --shim-plan probe: %v\noutput: %s", err, out)
 	}
-	if exitErr, ok := err.(*exec.ExitError); ok {
-		if exitErr.ExitCode() != 2 {
-			t.Fatalf("expected exit 2, got %d", exitErr.ExitCode())
-		}
-	}
-	if !strings.Contains(string(out), "-R requires a command") {
-		t.Fatalf("expected usage hint, got: %s", out)
+	want := "CD\n" + filepath.Join(dir, "probe") + "\n"
+	if string(out) != want {
+		t.Fatalf("expected %q, got %q", want, string(out))
 	}
 }
 
@@ -606,8 +620,8 @@ func TestIntegrationWorktreeResolution(t *testing.T) {
 
 	bin := buildBinary(t)
 	parent := t.TempDir()
-	repoDir := filepath.Join(parent, "outbox")
-	wtPath := filepath.Join(parent, "outbox.worktrees", "feat-x")
+	repoDir := filepath.Join(parent, "webapp")
+	wtPath := filepath.Join(parent, "webapp.worktrees", "feat-x")
 	if err := os.MkdirAll(filepath.Join(repoDir, ".git"), 0o755); err != nil {
 		t.Fatalf("mkdir repo: %v", err)
 	}
@@ -620,14 +634,14 @@ func TestIntegrationWorktreeResolution(t *testing.T) {
   default:
     dir: %s
     urls:
-      - git@github.com:sahil87/outbox.git
+      - git@github.com:sahil87/webapp.git
 `, parent))
 
 	listJSON := fmt.Sprintf(`[
   {"name":"main","branch":"main","path":"%s","is_main":true,"is_current":false,"dirty":false,"unpushed":0},
   {"name":"feat-x","branch":"feat-x","path":"%s","is_main":false,"is_current":true,"dirty":true,"unpushed":2}
 ]`, canonRepo, wtPath)
-	binDir := writeFakeWtListShim(t, map[string]string{"outbox": listJSON})
+	binDir := writeFakeWtListShim(t, map[string]string{"webapp": listJSON})
 
 	env := append(os.Environ(),
 		"HOME="+home,
@@ -635,11 +649,11 @@ func TestIntegrationWorktreeResolution(t *testing.T) {
 	)
 
 	t.Run("worktree where resolves", func(t *testing.T) {
-		cmd := exec.Command(bin, "outbox/feat-x", "where")
+		cmd := exec.Command(bin, "webapp/feat-x", "where")
 		cmd.Env = env
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			t.Fatalf("hop outbox/feat-x where: %v\noutput: %s", err, out)
+			t.Fatalf("hop webapp/feat-x where: %v\noutput: %s", err, out)
 		}
 		if got := strings.TrimSpace(string(out)); got != wtPath {
 			t.Fatalf("got %q, want worktree path %q", got, wtPath)
@@ -647,11 +661,11 @@ func TestIntegrationWorktreeResolution(t *testing.T) {
 	})
 
 	t.Run("main worktree resolves to main checkout", func(t *testing.T) {
-		cmd := exec.Command(bin, "outbox/main", "where")
+		cmd := exec.Command(bin, "webapp/main", "where")
 		cmd.Env = env
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			t.Fatalf("hop outbox/main where: %v\noutput: %s", err, out)
+			t.Fatalf("hop webapp/main where: %v\noutput: %s", err, out)
 		}
 		if got := strings.TrimSpace(string(out)); got != canonRepo {
 			t.Fatalf("got %q, want main path %q", got, canonRepo)
@@ -659,7 +673,7 @@ func TestIntegrationWorktreeResolution(t *testing.T) {
 	})
 
 	t.Run("unknown worktree exits 1 with hint", func(t *testing.T) {
-		cmd := exec.Command(bin, "outbox/nonexistent", "where")
+		cmd := exec.Command(bin, "webapp/nonexistent", "where")
 		cmd.Env = env
 		out, err := cmd.CombinedOutput()
 		if err == nil {
@@ -668,13 +682,13 @@ func TestIntegrationWorktreeResolution(t *testing.T) {
 		if exitErr, ok := err.(*exec.ExitError); !ok || exitErr.ExitCode() != 1 {
 			t.Fatalf("expected exit 1, got %v", err)
 		}
-		if !strings.Contains(string(out), "worktree 'nonexistent' not found in 'outbox'") {
+		if !strings.Contains(string(out), "worktree 'nonexistent' not found in 'webapp'") {
 			t.Fatalf("expected no-such-worktree hint, got: %s", out)
 		}
 	})
 
 	t.Run("empty RHS is usage error", func(t *testing.T) {
-		cmd := exec.Command(bin, "outbox/", "where")
+		cmd := exec.Command(bin, "webapp/", "where")
 		cmd.Env = env
 		out, err := cmd.CombinedOutput()
 		if err == nil {

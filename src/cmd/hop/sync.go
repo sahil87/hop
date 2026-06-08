@@ -21,71 +21,16 @@ import (
 // or environment variables.
 const defaultSyncCommitMessage = "chore: sync via hop"
 
-// newSyncCmd builds the `hop sync` subcommand.
+// sync.go runs the full per-repo sync workflow (auto-commit dirty tree, then
+// `git pull --rebase` then `git push`). The selection-first entry point lives
+// in batch_verb.go (`hop <selection> sync`); the runners below are shared by
+// the single and batch paths. The reoriented form uses the fixed default commit
+// message (defaultSyncCommitMessage) — the former `-m/--message` flag is dropped
+// (to set a custom message, commit manually via `hop <name> git commit` first).
 //
-//	hop sync [<name-or-group>] [--all] [-m / --message <msg>]
-//
-// Wraps `git pull --rebase` then `git push` over a single repo, every cloned
-// repo in a named group, or every cloned repo in the registry. The signature
-// and resolution rules mirror `hop pull`.
-//
-// Per-repo flow:
-//   - Clean working tree: identical to today — `git pull --rebase` then
-//     `git push`. No auto-stash, no auto-resolve on rebase conflict, no
-//     force-push (git's errors surface verbatim — Constitution IV).
-//   - Dirty working tree (`git status --porcelain` returns content): hop runs
-//     `git add --all` then `git commit -m <msg>` BEFORE the existing rebase +
-//     push. The default commit message is `chore: sync via hop`; pass
-//     `-m / --message <msg>` to override. User-installed hooks (pre-commit,
-//     commit-msg, pre-push) are respected — hop never passes `--no-verify`.
-//
-// `hop push` is intentionally NOT extended with this auto-commit behavior:
+// `hop <name> push` is intentionally NOT extended with auto-commit behavior:
 // pushing without rebasing first is the riskier op, so commit-and-push without
-// an upstream sync stays opt-in via `git` directly or `hop -R <name> git ...`.
-func newSyncCmd() *cobra.Command {
-	var (
-		all     bool
-		message string
-	)
-	cmd := &cobra.Command{
-		Use:               "sync [<name-or-group>] [--all] [-m <msg>]",
-		Short:             "Auto-commit dirty trees, then 'git pull --rebase' and 'git push' in a repo, group, or every cloned repo with --all",
-		Args:              cobra.MaximumNArgs(1),
-		ValidArgsFunction: completeRepoOrGroupNames,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			query := ""
-			if len(args) == 1 {
-				query = args[0]
-			}
-			if all && query != "" {
-				return &errExitCode{code: 2, msg: "hop sync: --all conflicts with positional <name-or-group>"}
-			}
-			if !all && query == "" {
-				return &errExitCode{code: 2, msg: "hop sync: missing <name-or-group>. Pass a name, a group, or --all."}
-			}
-
-			targets, mode, err := resolveTargets(query, all)
-			if err != nil {
-				if errors.Is(err, errFzfMissing) {
-					fmt.Fprintln(cmd.ErrOrStderr(), fzfMissingHint)
-					return errSilent
-				}
-				return err
-			}
-
-			op := func(cmd *cobra.Command, r repos.Repo) (ok, gitMissing bool, err error) {
-				return syncOne(cmd, r, message)
-			}
-			if mode == modeSingle {
-				return syncSingle(cmd, targets[0], op)
-			}
-			return syncBatch(cmd, targets, op)
-		},
-	}
-	cmd.Flags().BoolVar(&all, "all", false, "run sync (pull --rebase + push) in every cloned repo from hop.yaml")
-	cmd.Flags().StringVarP(&message, "message", "m", defaultSyncCommitMessage, "commit message used when auto-committing a dirty tree (no effect on clean trees)")
-	return cmd
-}
+// an upstream sync stays opt-in via `hop <name> git ...`.
 
 // syncSingle handles single-repo mode (rule 3 substring match → one Repo).
 // Skip-not-cloned and any failure (commit, rebase, or push) exits 1; success

@@ -8,148 +8,101 @@ import (
 )
 
 // posixInit is the shared portion of `hop shell-init zsh` and `hop shell-init bash`.
-// Both shells understand `[[ ]]`, `${@:2}` slicing, and `local`. The completion
+// Both shells understand `[[ ]]`, `local`, and `printf '%s' | sed`. The completion
 // suffix (cobra-generated zsh or bash completion) is appended per-shell at the end.
 //
-// Resolution order in the hop() function (5-step ladder, first match wins):
+// The shim is a LOGIC-FREE interpreter of a fixed 3-keyword protocol emitted by
+// the binary's hidden `--shim-plan` flag. It hard-codes ZERO subcommand names —
+// the subcommand list lives only in cobra, so shim/binary name-drift is
+// structurally impossible (the root cause of hop's "stale shim" bug class).
 //
-//  1. No args                                           → bare picker
-//  2. $1 is __complete*                                 → forward to binary (cobra completion)
-//  3. $1 is a known subcommand (add, rm, clone, pull,   → _hop_dispatch
-//     ... — but never `cd`/`where`, which are $2 verbs)
-//  4. $1 is a flag                                      → forward to binary
-//  5. otherwise ($1 is treated as a repo name) — dispatch on $2:
-//     $# == 1                                         → _hop_dispatch cd "$1" (bare-name → cd)
-//     $# >= 2 and $2 == "cd"                          → _hop_dispatch cd "$1" (explicit cd verb)
-//     $# >= 2 and $2 == "where"                       → command hop "$1" where (binary handles)
-//     $# >= 2 and $2 == "open"                        → _hop_dispatch open "$1" (open-verb; "Open here" cds the parent shell via WT_CD_FILE temp file)
-//     $# >= 2 and $2 == "-R"                          → command hop -R "$1" "${@:3}" (canonical exec form)
-//     otherwise                                       → command hop -R "$1" "$2" "${@:3}" (tool-form sugar)
+// Flow in hop():
 //
-// The shim does NOT inspect PATH for $1 or $2 — the grammar is "subcommand
-// xor repo" in $1, and $2 is either a verb (`cd`, `where`, `open`), `-R`, or a tool name.
-// Missing tools surface via the binary's `hop: -R: '<cmd>' not found.` error.
-// The shim rewrites the user-facing `hop <name> -R <cmd>...` form to
-// `command hop -R <name> <cmd>...` so the binary's extractDashR continues to
-// see the existing internal shape.
+//  1. $1 is __complete*  → forward to the binary directly. The cobra-generated
+//     completion script calls `hop __complete ...`; this must NOT go through
+//     --shim-plan (which would classify the completion request, not answer it).
+//  2. otherwise          → ask the binary to classify the user's argv:
+//     plan="$(command hop --shim-plan "$@")" || return $?
+//     and `case` on the first line over the 3 protocol keywords:
+//     CD <path>            → cd -- <path>                  (`hop webapp`, `hop webapp cd`)
+//     RUN_IN_PARENT <path> → cd -- <path>; shift; "$@"     (`hop webapp git pull`, `hop webapp code .`)
+//     PASSTHROUGH          → _hop_passthrough "$@"         (binary owns it: add/rm/clone/ls/
+//     config/update/shell-init/where/open/pull/push/sync/--help/--version/...)
+//
+// SECURITY (Constitution I): the shim runs the user's already-parsed words
+// ("$@") — never `eval` of binary output. The binary emits only the fixed
+// vocabulary plus a path used solely as a quoted `cd` operand. There is no
+// re-parsing of binary stdout as code, so no shell-injection surface.
+//
+// The PASSTHROUGH arm provides a unified cd side-channel via WT_CD_FILE: it runs
+// the binary with WT_CD_FILE pointing at a temp file, then cds there if the
+// binary (or a tool it execs, e.g. `wt open`'s "Open here") wrote a path. This
+// collapses the former three handoffs (where=stdout, open=WT_CD_FILE,
+// clone=conditional-stdout) into ONE channel. `where` still prints to stdout for
+// scripts; `open`/`clone <url>` route their cd-target through WT_CD_FILE.
 const posixInit = `# hop shell integration — emit via: eval "$(hop shell-init <shell>)"
-# Installs: hop function (with bare-name dispatch + verb dispatch + tool-form), h alias, hi alias, completion.
+# Installs: hop function (a logic-free interpreter of the binary's --shim-plan
+# protocol), h alias, completion. Hard-codes zero subcommand names.
 
 hop() {
-  if [[ $# -eq 0 ]]; then
-    command hop
-    return $?
-  fi
   case "$1" in
     __complete*)
       # Cobra-internal completion entrypoints (__complete, __completeNoDesc).
-      # The cobra-generated completion script invokes "hop __complete ..." to
-      # fetch dynamic candidates; without this case the function would route
-      # __complete through the bare-name dispatcher and treat it as a repo name.
+      # These must reach the binary directly — routing them through --shim-plan
+      # would classify the completion request instead of answering it.
       command hop "$@"
+      return $?
       ;;
-    add|rm|clone|pull|push|sync|ls|shell-init|config|update|help|--help|-h|--version|completion)
-      _hop_dispatch "$@"
+  esac
+
+  local plan
+  plan="$(command hop --shim-plan "$@")" || return $?
+  case "${plan%%$'\n'*}" in
+    CD)
+      cd -- "$(printf '%s' "$plan" | sed -n 2p)"
       ;;
-    -*)
-      command hop "$@"
+    RUN_IN_PARENT)
+      cd -- "$(printf '%s' "$plan" | sed -n 2p)" || return $?
+      shift
+      "$@"
+      ;;
+    PASSTHROUGH)
+      _hop_passthrough "$@"
       ;;
     *)
-      # $1 is a repo name (the grammar is "subcommand xor repo" — never a tool,
-      # never a verb at $1). Dispatch on $2.
-      if [[ $# -eq 1 ]]; then
-        # Bare-name dispatch: hop <name> -> cd into the repo (shorthand for hop <name> cd).
-        _hop_dispatch cd "$1"
-      elif [[ "$2" == "cd" || "$2" == "where" || "$2" == "open" ]]; then
-        # Verb dispatch at $2. The verbs are 2-arg only — extra args (e.g.
-        # hop <name> cd extra) are forwarded to the binary so cobra's
-        # MaximumNArgs(2) rejects with the right error rather than silently
-        # dropping args.
-        if [[ $# -gt 2 ]]; then
-          command hop "$@"
-        elif [[ "$2" == "cd" ]]; then
-          # hop <name> cd -> cd into the repo (shim handles, parent shell mutates).
-          _hop_dispatch cd "$1"
-        elif [[ "$2" == "open" ]]; then
-          # hop <name> open -> delegate to wt's app menu (binary handles).
-          # If user picks "Open here", the binary prints the path on stdout;
-          # the shim's _hop_dispatch open arm captures it and cds the parent.
-          _hop_dispatch open "$1"
-        else
-          # hop <name> where -> binary resolves and prints the path.
-          command hop "$1" where
-        fi
-      elif [[ "$2" == "-R" ]]; then
-        # Canonical exec form: hop <name> -R <cmd>... → command hop -R <name> <cmd>...
-        # The shim flips the user-facing form to the binary's internal shape
-        # (extractDashR scans for -R followed by <name> followed by <cmd>...).
-        command hop -R "$1" "${@:3}"
-      else
-        # Tool-form sugar: hop <name> <tool> [args...] → command hop -R <name> <tool> [args...]
-        # Missing tools surface via the binary's "hop: -R: '<cmd>' not found." error.
-        command hop -R "$1" "$2" "${@:3}"
-      fi
+      # Defensive: an unrecognized plan (e.g. a future protocol keyword reaching
+      # an older shim) falls back to the binary so cobra prints a normal error.
+      command hop "$@"
       ;;
   esac
 }
 
-_hop_dispatch() {
-  case "$1" in
-    cd)
-      # Callers always pass $2 (the repo name) — both the 1-arg bare-name branch
-      # and the 2-arg explicit-cd branch in hop() pass "$1" as the single argument.
-      local target
-      target="$(command hop "$2" where)" || return $?
-      cd -- "$target"
-      ;;
-    open)
-      # Caller passes $2 as the repo name (verb-dispatch in hop() pre-validated $#==2).
-      # The binary execs wt with the resolved path; wt presents an interactive
-      # menu on the user's terminal. For "Open here", wt writes the path to
-      # the file named by WT_CD_FILE — for editors/terminals/etc. the file
-      # stays empty.
-      #
-      # We can NOT capture the binary's stdout here (with $(...)) because wt
-      # is interactive: capturing stdout would swallow its menu and leave the
-      # user staring at a blank prompt while wt waits on stdin. The temp-file
-      # mechanism keeps wt's stdio fully connected to the user's terminal and
-      # routes the cd-target through a side channel.
-      local cdfile target rc
-      cdfile="$(mktemp -t hop-open-cd.XXXXXX)" || return $?
-      target=""
-      WT_CD_FILE="$cdfile" WT_WRAPPER=1 command hop "$2" open
-      rc=$?
-      if [[ -s "$cdfile" ]]; then
-        target="$(cat "$cdfile")"
-      fi
-      rm -f "$cdfile"
-      if (( rc != 0 )); then
-        return $rc
-      fi
-      if [[ -n "$target" ]]; then
-        cd -- "$target"
-      fi
-      ;;
-    clone)
-      # Detect URL form (contains :// or @host:path)
-      if [[ "$2" == *"://"* ]] || [[ "$2" == *"@"*":"* ]]; then
-        local target
-        target="$(command hop clone "${@:2}")" || return $?
-        if [[ -n "$target" ]]; then
-          cd -- "$target"
-        fi
-      else
-        command hop "$@"
-      fi
-      ;;
-    *)
-      command hop "$@"
-      ;;
-  esac
+# _hop_passthrough runs the binary while providing a unified cd side-channel.
+# It points WT_CD_FILE at a temp file; commands that resolve a cd-target write
+# the path there (today: ` + "`wt open`" + `'s "Open here", and ` + "`hop clone <url>`" + `). The
+# shim cds there after the command exits if the file is non-empty. We do NOT
+# capture stdout via $(...) — that would swallow interactive menus (wt) and
+# block on stdin. Commands that don't write the file (where, ls, config, ...)
+# leave it empty and no cd occurs.
+_hop_passthrough() {
+  local cdfile target rc
+  cdfile="$(mktemp -t hop-cd.XXXXXX)" || { command hop "$@"; return $?; }
+  WT_CD_FILE="$cdfile" command hop "$@"
+  rc=$?
+  target=""
+  if [[ -s "$cdfile" ]]; then
+    target="$(cat "$cdfile")"
+  fi
+  rm -f "$cdfile"
+  if (( rc != 0 )); then
+    return $rc
+  fi
+  if [[ -n "$target" ]]; then
+    cd -- "$target"
+  fi
 }
 
 h() { hop "$@"; }
-hi() { command hop "$@"; }
 
 `
 
@@ -182,15 +135,15 @@ func newShellInitCmd() *cobra.Command {
 						return fmt.Errorf("hop shell-init: zsh completion: %w", err)
 					}
 					// Cobra registers the completion only for `hop`; share it with the
-					// `h` and `hi` aliases so tab completion works on those too.
-					fmt.Fprint(out, "\ncompdef _hop h hi\n")
+					// `h` alias so tab completion works there too.
+					fmt.Fprint(out, "\ncompdef _hop h\n")
 				case "bash":
 					if err := rootForCompletion.GenBashCompletionV2(out, true); err != nil {
 						return fmt.Errorf("hop shell-init: bash completion: %w", err)
 					}
 					// Bash's `complete` accepts multiple command names; mirror compdef
-					// for the h and hi aliases. The cobra-generated function is __start_hop.
-					fmt.Fprint(out, "\ncomplete -o default -F __start_hop h hi\n")
+					// for the h alias. The cobra-generated function is __start_hop.
+					fmt.Fprint(out, "\ncomplete -o default -F __start_hop h\n")
 				}
 			}
 			return nil

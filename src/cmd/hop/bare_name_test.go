@@ -105,26 +105,27 @@ func TestBareNameToolForm(t *testing.T) {
 	}
 }
 
-// TestBareNameMaxArgs verifies cobra's MaximumNArgs(2) cap rejects 3+
-// positional args BEFORE RunE runs — the error is cobra's args-validator
-// message ("accepts at most 2 arg(s)..."), NOT a hop-owned errExitCode.
-// Pinning the cobra shape catches accidental cap removal: a future bump to
-// MaximumNArgs(3) would reroute through RunE's tool-form branch and silently
-// pass a loose `err != nil` check.
-func TestBareNameMaxArgs(t *testing.T) {
+// TestToolFormWithExtraArgsErrorsInBinary verifies that 3+ args (a tool-form
+// invocation with arguments, e.g. `hop hop cursor extra`) reach RunE under the
+// selection-first grammar — the root now accepts arbitrary args (the former
+// cobra MaximumNArgs(2) cap was removed because tool-form actions carry their
+// own argv). The binary can't run tools (that's the shim's RUN_IN_PARENT path),
+// so it returns the tool-form hint via *errExitCode.
+func TestToolFormWithExtraArgsErrorsInBinary(t *testing.T) {
 	writeReposFixture(t, singleRepoYAML)
 
 	_, _, err := runArgs(t, "hop", "cursor", "extra")
 	if err == nil {
-		t.Fatalf("expected error from 3 positionals (cap = 2)")
+		t.Fatalf("expected tool-form error from `hop hop cursor extra`")
 	}
-	// The cap is enforced by cobra's args validator, not RunE — assert the
-	// error is NOT an *errExitCode (which would mean RunE ran).
 	var withCode *errExitCode
-	if errors.As(err, &withCode) {
-		t.Fatalf("expected cobra args-validator error, got *errExitCode (RunE ran — cap may have been bumped): %v", err)
+	if !errors.As(err, &withCode) {
+		t.Fatalf("expected *errExitCode (RunE ran the tool-form branch), got %T: %v", err, err)
 	}
-	if !strings.Contains(err.Error(), "accepts at most 2 arg") {
-		t.Fatalf("expected cobra `accepts at most 2 arg` message, got: %v", err)
+	if withCode.code != 2 {
+		t.Fatalf("expected exit code 2, got %d", withCode.code)
+	}
+	if !strings.Contains(withCode.msg, "is not a hop verb") {
+		t.Fatalf("expected tool-form hint, got: %s", withCode.msg)
 	}
 }

@@ -6,409 +6,221 @@ import (
 	"testing"
 )
 
-func TestShellInitZshContainsHopFunctionAndAliases(t *testing.T) {
-	// Set rootForCompletion so the completion script is appended (mirrors main()).
+// emitZsh runs `hop shell-init zsh` with rootForCompletion set (mirrors main())
+// and returns the emitted shim text (including the appended cobra completion).
+func emitZsh(t *testing.T) string {
+	t.Helper()
 	rootForCompletion = newRootCmd()
-	defer func() { rootForCompletion = nil }()
-
+	t.Cleanup(func() { rootForCompletion = nil })
 	stdout, _, err := runArgs(t, "shell-init", "zsh")
 	if err != nil {
 		t.Fatalf("shell-init zsh: %v", err)
 	}
-	out := stdout.String()
-	if !strings.Contains(out, "hop()") {
-		t.Fatalf("expected `hop()` function in output, got:\n%s", out)
+	return stdout.String()
+}
+
+// shimOnly returns just the hop-authored shim portion (posixInit), stripping the
+// cobra-generated completion script that shell-init appends. Cobra's completion
+// machinery contains its own `eval` calls and `_describe` plumbing that are NOT
+// part of hop's protocol shim — assertions about the shim's shape must scope to
+// this portion only. The cobra zsh completion begins with `_hop()` (the
+// completion function); posixInit defines `hop()`/`_hop_passthrough`/`h()` and
+// ends before it.
+func shimOnly(out string) string {
+	// The cobra-generated completion is appended after posixInit, beginning with
+	// the `#compdef hop` directive (zsh) or `# bash completion ...` banner.
+	for _, marker := range []string{"#compdef hop", "# bash completion"} {
+		if idx := strings.Index(out, marker); idx >= 0 {
+			return out[:idx]
+		}
 	}
-	if !strings.Contains(out, "_hop_dispatch") {
-		t.Fatalf("expected `_hop_dispatch` helper, got:\n%s", out)
+	return out
+}
+
+// TestShellInitZshContainsHopFunctionAndHAlias asserts the emitted shim defines
+// the hop() interpreter and the h alias, and that the cobra-generated _hop
+// completion is appended.
+func TestShellInitZshContainsHopFunctionAndHAlias(t *testing.T) {
+	out := emitZsh(t)
+	if !strings.Contains(out, "hop()") {
+		t.Fatalf("expected `hop()` function, got:\n%s", out)
 	}
 	if !strings.Contains(out, `h() { hop "$@"; }`) {
 		t.Fatalf("expected `h()` alias, got:\n%s", out)
 	}
-	if !strings.Contains(out, `hi() { command hop "$@"; }`) {
-		t.Fatalf("expected `hi()` alias, got:\n%s", out)
-	}
-	if !strings.Contains(out, `command hop "$2" where`) {
-		t.Fatalf("expected delegation to `command hop \"$2\" where` (repo-verb grammar), got:\n%s", out)
-	}
-	// cobra-generated completion appends a `_hop` zsh completion function.
 	if !strings.Contains(out, "_hop") {
 		t.Fatalf("expected cobra-generated _hop completion, got:\n%s", out)
 	}
 }
 
-// TestShellInitZshRegistersCompletionForAliases asserts that the emitted
-// shell-init shares the cobra-generated _hop completion with the `h` and
-// `hi` aliases via `compdef _hop h hi`. Without this, tab completion only
-// works on the `hop` command — `h <prefix><TAB>` would fall through to
-// zsh's default file-name completion.
-func TestShellInitZshRegistersCompletionForAliases(t *testing.T) {
-	rootForCompletion = newRootCmd()
-	defer func() { rootForCompletion = nil }()
-
-	stdout, _, err := runArgs(t, "shell-init", "zsh")
-	if err != nil {
-		t.Fatalf("shell-init zsh: %v", err)
+// TestShellInitZshDropsHiAlias asserts the `hi` alias was removed (intake §8).
+// `command hop` is the raw escape hatch.
+func TestShellInitZshDropsHiAlias(t *testing.T) {
+	out := emitZsh(t)
+	if strings.Contains(out, "hi()") {
+		t.Fatalf("expected `hi()` alias to be removed, got:\n%s", out)
 	}
-	if !strings.Contains(stdout.String(), "compdef _hop h hi") {
-		t.Fatalf("expected `compdef _hop h hi` registration, got:\n%s", stdout.String())
+	if strings.Contains(out, "compdef _hop h hi") {
+		t.Fatalf("expected completion registration to drop `hi`, got:\n%s", out)
+	}
+	if !strings.Contains(out, "compdef _hop h\n") {
+		t.Fatalf("expected `compdef _hop h` (h alias only), got:\n%s", out)
 	}
 }
 
-// TestShellInitZshRoutesCobraCompletionToBinary asserts that the emitted hop()
-// shell function explicitly routes cobra's __complete* introspection calls
-// to `command hop` rather than the bare-name dispatcher. Without this branch,
-// the cobra-generated _hop completion script invokes the shell function with
-// `__complete <args>...`, which falls through to the default case and is
-// treated as a repo name (e.g. `cd __complete`) — breaking tab completion for
-// any prefix beyond the empty case.
-func TestShellInitZshRoutesCobraCompletionToBinary(t *testing.T) {
-	rootForCompletion = newRootCmd()
-	defer func() { rootForCompletion = nil }()
-
-	stdout, _, err := runArgs(t, "shell-init", "zsh")
-	if err != nil {
-		t.Fatalf("shell-init zsh: %v", err)
+// TestShellInitZshCallsShimPlan asserts the shim asks the binary to classify the
+// user's argv via the hidden --shim-plan flag (the core of the protocol).
+func TestShellInitZshCallsShimPlan(t *testing.T) {
+	out := emitZsh(t)
+	if !strings.Contains(out, `plan="$(command hop --shim-plan "$@")" || return $?`) {
+		t.Fatalf("expected `plan=\"$(command hop --shim-plan \"$@\")\" || return $?`, got:\n%s", out)
 	}
-	out := stdout.String()
+}
+
+// TestShellInitZshCasesOnThreeKeywords asserts the shim branches on exactly the
+// 3 protocol keywords (CD / RUN_IN_PARENT / PASSTHROUGH) — the entire vocabulary
+// of the shim. This is what makes name-drift structurally impossible.
+func TestShellInitZshCasesOnThreeKeywords(t *testing.T) {
+	out := emitZsh(t)
+	for _, kw := range []string{"CD)", "RUN_IN_PARENT)", "PASSTHROUGH)"} {
+		if !strings.Contains(out, kw) {
+			t.Fatalf("expected protocol case `%s`, got:\n%s", kw, out)
+		}
+	}
+}
+
+// TestShellInitZshRunInParentRunsUserWords asserts the RUN_IN_PARENT arm cds to
+// the resolved path then runs the user's already-parsed words (`shift; "$@"`),
+// NOT an eval of binary output. This is the security-critical contract
+// (Constitution I — no shell-injection surface).
+func TestShellInitZshRunInParentRunsUserWords(t *testing.T) {
+	out := emitZsh(t)
+	// The arm shifts off the selection and runs the remaining words verbatim.
+	if !strings.Contains(out, "shift") {
+		t.Fatalf("expected `shift` in RUN_IN_PARENT arm, got:\n%s", out)
+	}
+	if !strings.Contains(out, `"$@"`) {
+		t.Fatalf("expected `\"$@\"` (run user's literal words) in RUN_IN_PARENT arm, got:\n%s", out)
+	}
+}
+
+// TestShellInitZshNeverEvalsBinaryOutput asserts the shim NEVER pipes binary
+// output into eval (Constitution I). The plan path is parsed with sed and used
+// only as a quoted cd operand; the action is the user's already-parsed "$@".
+func TestShellInitZshNeverEvalsBinaryOutput(t *testing.T) {
+	// Scope to the hop-authored shim's executable lines (drop comments — the
+	// leading banner legitimately contains `eval "$(hop shell-init ...)"`, which
+	// is the install instruction, not the shim evaling binary output). The
+	// appended cobra completion has its own `eval` plumbing (not a hop concern).
+	out := shimOnly(emitZsh(t))
+	for _, line := range strings.Split(out, "\n") {
+		code := strings.TrimSpace(line)
+		if strings.HasPrefix(code, "#") {
+			continue // comment line
+		}
+		if strings.Contains(code, "eval ") || strings.Contains(code, "eval\t") || code == "eval" {
+			t.Fatalf("expected NO executable `eval` in the shim (shell-injection surface), got line: %q", line)
+		}
+	}
+}
+
+// TestShellInitZshHardCodesNoSubcommandNames asserts the shim contains no cobra
+// subcommand-name case list — the permanent fix for the stale-shim bug class
+// (intake §3). The only literals the shim branches on are the 3 protocol
+// keywords. We check the former hard-coded list is gone.
+func TestShellInitZshHardCodesNoSubcommandNames(t *testing.T) {
+	out := emitZsh(t)
+	// The old shim had a case arm like `add|rm|clone|pull|...|completion)`.
+	for _, frag := range []string{"add|rm|clone", "|completion)", "_hop_dispatch"} {
+		if strings.Contains(out, frag) {
+			t.Fatalf("expected NO subcommand case-list fragment %q in the protocol shim, got:\n%s", frag, out)
+		}
+	}
+	// Spot-check that individual subcommand names do not appear as case arms.
+	for _, name := range []string{"clone)", "add)", "pull)", "push)", "sync)", "ls)"} {
+		if strings.Contains(out, name) {
+			t.Fatalf("expected NO `%s` case arm (subcommand names live only in cobra), got:\n%s", name, out)
+		}
+	}
+}
+
+// TestShellInitZshDropsDashRRewrite asserts the shim no longer rewrites the
+// user-facing form to the binary's `-R` shape (the -R flag is removed; tool-form
+// is native grammar via RUN_IN_PARENT).
+func TestShellInitZshDropsDashRRewrite(t *testing.T) {
+	out := emitZsh(t)
+	if strings.Contains(out, "-R") {
+		t.Fatalf("expected NO `-R` rewrite in the shim (flag removed), got:\n%s", out)
+	}
+}
+
+// TestShellInitZshRoutesCompletionToBinary asserts __complete* introspection
+// goes directly to the binary, NOT through --shim-plan (which would classify
+// the completion request instead of answering it).
+func TestShellInitZshRoutesCompletionToBinary(t *testing.T) {
+	out := shimOnly(emitZsh(t))
 	if !strings.Contains(out, "__complete*)") {
-		t.Fatalf("expected `__complete*)` case to forward cobra completion to `command hop`, got:\n%s", out)
+		t.Fatalf("expected `__complete*)` case forwarding completion to the binary, got:\n%s", out)
 	}
-}
-
-// TestShellInitContainsBareNameDispatch asserts the shim emits the bare-name
-// branch (hop <name> with $# == 1 → _hop_dispatch cd "$1"). This is the
-// 1-arg path of the new repo-first grammar: $1 is always treated as a repo
-// name (the grammar is "subcommand xor repo" — never a tool).
-func TestShellInitContainsBareNameDispatch(t *testing.T) {
-	rootForCompletion = newRootCmd()
-	defer func() { rootForCompletion = nil }()
-
-	stdout, _, err := runArgs(t, "shell-init", "zsh")
-	if err != nil {
-		t.Fatalf("shell-init zsh: %v", err)
+	// The __complete arm must NOT route through --shim-plan (which would classify
+	// the completion request instead of answering it). Slice the arm body and
+	// assert it forwards directly to the binary.
+	armStart := strings.Index(out, "__complete*)")
+	armEnd := strings.Index(out[armStart:], ";;")
+	if armEnd < 0 {
+		t.Fatalf("could not find end of __complete arm")
 	}
-	out := stdout.String()
-	if !strings.Contains(out, `_hop_dispatch cd "$1"`) {
-		t.Fatalf("expected `_hop_dispatch cd \"$1\"` for 1-arg bare-name path, got:\n%s", out)
-	}
-}
-
-// TestShellInitContainsCanonicalDashRRewrite asserts the shim rewrites the
-// user-facing `hop <name> -R <cmd>...` form to the binary's internal
-// `command hop -R <name> <cmd>...` shape. The shim flips; the binary's
-// extractDashR keeps the existing argv shape (Design Decision #1).
-func TestShellInitContainsCanonicalDashRRewrite(t *testing.T) {
-	rootForCompletion = newRootCmd()
-	defer func() { rootForCompletion = nil }()
-
-	stdout, _, err := runArgs(t, "shell-init", "zsh")
-	if err != nil {
-		t.Fatalf("shell-init zsh: %v", err)
-	}
-	out := stdout.String()
-	if !strings.Contains(out, `command hop -R "$1" "${@:3}"`) {
-		t.Fatalf("expected canonical -R rewrite `command hop -R \"$1\" \"${@:3}\"`, got:\n%s", out)
-	}
-}
-
-// TestShellInitContainsToolFormDispatch asserts the shim emits the tool-form
-// branch (hop <name> <tool> [args...] → command hop -R "$1" "$2" "${@:3}").
-// This is the new sugar that runs a tool inside a repo with the repo name
-// in $1 (repo-first grammar).
-func TestShellInitContainsToolFormDispatch(t *testing.T) {
-	rootForCompletion = newRootCmd()
-	defer func() { rootForCompletion = nil }()
-
-	stdout, _, err := runArgs(t, "shell-init", "zsh")
-	if err != nil {
-		t.Fatalf("shell-init zsh: %v", err)
-	}
-	out := stdout.String()
-	if !strings.Contains(out, `command hop -R "$1" "$2" "${@:3}"`) {
-		t.Fatalf("expected tool-form dispatch `command hop -R \"$1\" \"$2\" \"${@:3}\"`, got:\n%s", out)
-	}
-}
-
-// TestShellInitOmitsLegacyShape asserts the collapsed shim no longer emits
-// the legacy precedence-ladder constructs: PATH inspection of $1, type-based
-// builtin/keyword detection, or cheerful error printfs. After the flip, the
-// grammar is "subcommand xor repo" in $1, so none of these checks apply.
-func TestShellInitOmitsLegacyShape(t *testing.T) {
-	rootForCompletion = newRootCmd()
-	defer func() { rootForCompletion = nil }()
-
-	stdout, _, err := runArgs(t, "shell-init", "zsh")
-	if err != nil {
-		t.Fatalf("shell-init zsh: %v", err)
-	}
-	out := stdout.String()
-
-	if strings.Contains(out, `command -v "$1"`) {
-		t.Errorf("expected NO `command -v \"$1\"` PATH check (removed in repo-first flip), got:\n%s", out)
-	}
-	if strings.Contains(out, `type "$1"`) {
-		t.Errorf("expected NO `type \"$1\"` builtin detection (removed in repo-first flip), got:\n%s", out)
-	}
-	if strings.Contains(out, "is a shell builtin") {
-		t.Errorf("expected NO `is a shell builtin` cheerful-error string (removed), got:\n%s", out)
-	}
-	if strings.Contains(out, "is not a known subcommand or a binary on PATH") {
-		t.Errorf("expected NO `is not a known subcommand or a binary on PATH` cheerful-error (removed), got:\n%s", out)
-	}
-}
-
-// TestShellInitZshDoesNotListCdOrWhereAsSubcommand asserts the case-list no
-// longer treats `cd` or `where` as known subcommands at $1. Both verbs moved
-// to $2 in the repo-verb grammar (`hop <name> cd`, `hop <name> where`); the
-// top-level subcommands were removed.
-//
-// Same two-phase structure as TestShellInitZshDoesNotListCodeAsSubcommand:
-// phase 1 anchors the case-list line, phase 2 asserts both tokens are absent.
-func TestShellInitZshDoesNotListCdOrWhereAsSubcommand(t *testing.T) {
-	rootForCompletion = newRootCmd()
-	defer func() { rootForCompletion = nil }()
-
-	stdout, _, err := runArgs(t, "shell-init", "zsh")
-	if err != nil {
-		t.Fatalf("shell-init zsh: %v", err)
-	}
-	out := stdout.String()
-
-	var caseListLine string
-	for _, line := range strings.Split(out, "\n") {
-		if strings.Contains(line, "|completion)") && strings.Contains(line, "shell-init") {
-			caseListLine = line
-			break
+	arm := out[armStart : armStart+armEnd]
+	// Check executable lines only — the arm's comment legitimately explains why
+	// it avoids --shim-plan, so a substring match on the whole arm would false-fire.
+	for _, line := range strings.Split(arm, "\n") {
+		code := strings.TrimSpace(line)
+		if strings.HasPrefix(code, "#") {
+			continue
+		}
+		if strings.Contains(code, "--shim-plan") {
+			t.Fatalf("expected __complete arm to NOT invoke --shim-plan, got line: %q", line)
 		}
 	}
-	if caseListLine == "" {
-		t.Fatalf("could not find subcommand case-list line. Output:\n%s", out)
-	}
-
-	if strings.Contains(caseListLine, "cd|") || strings.Contains(caseListLine, "|cd|") {
-		t.Fatalf("expected `cd` to be removed from subcommand case-list (moved to $2 verb), got line:\n%s", caseListLine)
-	}
-	if strings.Contains(caseListLine, "where|") || strings.Contains(caseListLine, "|where|") {
-		t.Fatalf("expected `where` to be removed from subcommand case-list (moved to $2 verb), got line:\n%s", caseListLine)
+	if !strings.Contains(arm, `command hop "$@"`) {
+		t.Fatalf("expected __complete arm to forward `command hop \"$@\"`, got arm:\n%s", arm)
 	}
 }
 
-// TestShellInitZshEmitsCdVerbBranch asserts the shim's repo-name branch
-// includes the explicit-`cd`-verb dispatch routing through `_hop_dispatch cd "$1"`.
-// The verb branches share a `$2 == "cd" || $2 == "where"` guard with extra-args
-// forwarding to the binary; the inner cd arm calls `_hop_dispatch cd "$1"`.
-func TestShellInitZshEmitsCdVerbBranch(t *testing.T) {
-	rootForCompletion = newRootCmd()
-	defer func() { rootForCompletion = nil }()
-
-	stdout, _, err := runArgs(t, "shell-init", "zsh")
-	if err != nil {
-		t.Fatalf("shell-init zsh: %v", err)
+// TestShellInitZshPassthroughUsesUnifiedCDChannel asserts the PASSTHROUGH arm
+// provides the unified WT_CD_FILE side-channel (collapsing the former
+// where/open/clone handoffs into one) and never captures stdout via $(...)
+// (which would swallow wt's interactive menu).
+func TestShellInitZshPassthroughUsesUnifiedCDChannel(t *testing.T) {
+	out := emitZsh(t)
+	if !strings.Contains(out, "_hop_passthrough") {
+		t.Fatalf("expected `_hop_passthrough` helper, got:\n%s", out)
 	}
-	out := stdout.String()
-	if !strings.Contains(out, `"$2" == "cd" || "$2" == "where"`) {
-		t.Fatalf("expected combined verb guard `\"$2\" == \"cd\" || \"$2\" == \"where\"`, got:\n%s", out)
+	if !strings.Contains(out, "mktemp -t hop-cd.XXXXXX") {
+		t.Errorf("expected `mktemp -t hop-cd.XXXXXX` temp file, got:\n%s", out)
 	}
-	if !strings.Contains(out, `_hop_dispatch cd "$1"`) {
-		t.Fatalf("expected `_hop_dispatch cd \"$1\"` (cd verb dispatch), got:\n%s", out)
+	if !strings.Contains(out, `WT_CD_FILE="$cdfile" command hop "$@"`) {
+		t.Errorf("expected `WT_CD_FILE=\"$cdfile\" command hop \"$@\"`, got:\n%s", out)
 	}
-}
-
-// TestShellInitZshEmitsWhereVerbBranch asserts the shim's repo-name branch
-// routes the explicit `where` verb to `command hop "$1" where` (the binary's
-// $2-verb dispatch).
-func TestShellInitZshEmitsWhereVerbBranch(t *testing.T) {
-	rootForCompletion = newRootCmd()
-	defer func() { rootForCompletion = nil }()
-
-	stdout, _, err := runArgs(t, "shell-init", "zsh")
-	if err != nil {
-		t.Fatalf("shell-init zsh: %v", err)
+	if !strings.Contains(out, `[[ -s "$cdfile" ]]`) {
+		t.Errorf("expected `[[ -s \"$cdfile\" ]]` non-empty test, got:\n%s", out)
 	}
-	out := stdout.String()
-	if !strings.Contains(out, `command hop "$1" where`) {
-		t.Fatalf("expected `command hop \"$1\" where` (where-verb dispatch to binary), got:\n%s", out)
+	if !strings.Contains(out, `rm -f "$cdfile"`) {
+		t.Errorf("expected `rm -f \"$cdfile\"` cleanup, got:\n%s", out)
+	}
+	if strings.Contains(out, `target="$(command hop`) {
+		t.Errorf("expected NO stdout capture of `command hop` (would swallow wt's menu), got:\n%s", out)
 	}
 }
 
-// TestShellInitZshVerbBranchForwardsExtraArgs asserts that when a verb at $2
-// (cd or where) is followed by extra args, the shim forwards the full argv to
-// the binary (`command hop "$@"`) so cobra's MaximumNArgs(2) raises an error
-// rather than silently dropping the extra args.
-func TestShellInitZshVerbBranchForwardsExtraArgs(t *testing.T) {
-	rootForCompletion = newRootCmd()
-	defer func() { rootForCompletion = nil }()
-
-	stdout, _, err := runArgs(t, "shell-init", "zsh")
-	if err != nil {
-		t.Fatalf("shell-init zsh: %v", err)
-	}
-	out := stdout.String()
-	if !strings.Contains(out, `if [[ $# -gt 2 ]]; then`) {
-		t.Fatalf("expected `if [[ $# -gt 2 ]]; then` (extra-args guard for verbs), got:\n%s", out)
-	}
-	// The body of the extra-args guard forwards to the binary verbatim.
-	if !strings.Contains(out, `command hop "$@"`) {
-		t.Fatalf("expected `command hop \"$@\"` forward when verb has extra args, got:\n%s", out)
-	}
-}
-
-// TestShellInitZshDispatchCdHelperHasNoNoArg2Fallback asserts the shim's
-// _hop_dispatch cd) arm does NOT contain the legacy no-$2 fallback
-// (`if [[ -z "$2" ]]; then command hop cd`). The fallback was unreachable
-// after the case-list dropped `cd` from $1 — the only callers (1-arg bare-name
-// and 2-arg explicit-cd) always pass $1 as the dispatch's $2.
-func TestShellInitZshDispatchCdHelperHasNoNoArg2Fallback(t *testing.T) {
-	rootForCompletion = newRootCmd()
-	defer func() { rootForCompletion = nil }()
-
-	stdout, _, err := runArgs(t, "shell-init", "zsh")
-	if err != nil {
-		t.Fatalf("shell-init zsh: %v", err)
-	}
-	out := stdout.String()
-	if strings.Contains(out, `command hop cd`) {
-		t.Fatalf("expected NO `command hop cd` invocation (legacy no-$2 fallback removed), got:\n%s", out)
-	}
-}
-
-// TestShellInitZshDoesNotListCodeAsSubcommand asserts the case-statement no
-// longer treats `code` as a known subcommand (the binary's `hop code` was
-// removed in favor of the tool-form `hop <repo> code`).
-//
-// The test is structured in two phases so that a missing-or-renamed case-list
-// line cannot make the test silently no-op (which the original loop-only
-// version did): phase 1 finds the line; phase 2 asserts `code` is absent.
-// If the case-list line is ever renamed, removed, or re-shaped, phase 1 fails.
-func TestShellInitZshDoesNotListCodeAsSubcommand(t *testing.T) {
-	rootForCompletion = newRootCmd()
-	defer func() { rootForCompletion = nil }()
-
-	stdout, _, err := runArgs(t, "shell-init", "zsh")
-	if err != nil {
-		t.Fatalf("shell-init zsh: %v", err)
-	}
-	out := stdout.String()
-
-	// Phase 1: locate the subcommand case-list line. The shim emits the line
-	// `<sub>|<sub>|...|completion)` followed on the next line by
-	// `_hop_dispatch "$@"`. We anchor on the trailing `|completion)` form
-	// which uniquely identifies the case-list line — robust to subcommand
-	// list reordering and indentation changes.
-	var caseListLine string
-	for _, line := range strings.Split(out, "\n") {
-		if strings.Contains(line, "|completion)") && strings.Contains(line, "shell-init") {
-			caseListLine = line
-			break
+// TestShellInitZshOmitsLegacyShape asserts the collapsed protocol shim no longer
+// emits the legacy precedence-ladder constructs.
+func TestShellInitZshOmitsLegacyShape(t *testing.T) {
+	out := emitZsh(t)
+	for _, frag := range []string{`command -v "$1"`, `type "$1"`, "is a shell builtin", "_hop_dispatch", "WT_WRAPPER"} {
+		if strings.Contains(out, frag) {
+			t.Errorf("expected legacy fragment %q to be removed, got:\n%s", frag, out)
 		}
-	}
-	if caseListLine == "" {
-		t.Fatalf("could not find subcommand case-list line (anchor: `|completion)` + `shell-init` on one line). The shim format may have changed; update this test. Output:\n%s", out)
-	}
-
-	// Phase 2: assert `code` is absent from the located line.
-	if strings.Contains(caseListLine, "|code|") || strings.HasPrefix(strings.TrimSpace(caseListLine), "code|") {
-		t.Fatalf("expected `code` to be removed from subcommand case-list, got line:\n%s", caseListLine)
-	}
-}
-
-// TestShellInitZshDoesNotListOpenAsSubcommand asserts the case-list does not
-// contain `open` after the repo-first grammar flip. The `hop open` subcommand
-// was removed; users invoke `open` as a tool via the shim's tool-form sugar:
-// `hop <name> open` (Darwin) or `hop <name> xdg-open` (Linux).
-//
-// Same two-phase structure as TestShellInitZshDoesNotListCodeAsSubcommand:
-// phase 1 anchors the case-list line, phase 2 asserts `open` is absent.
-func TestShellInitZshDoesNotListOpenAsSubcommand(t *testing.T) {
-	rootForCompletion = newRootCmd()
-	defer func() { rootForCompletion = nil }()
-
-	stdout, _, err := runArgs(t, "shell-init", "zsh")
-	if err != nil {
-		t.Fatalf("shell-init zsh: %v", err)
-	}
-	out := stdout.String()
-
-	var caseListLine string
-	for _, line := range strings.Split(out, "\n") {
-		if strings.Contains(line, "|completion)") && strings.Contains(line, "shell-init") {
-			caseListLine = line
-			break
-		}
-	}
-	if caseListLine == "" {
-		t.Fatalf("could not find subcommand case-list line. Output:\n%s", out)
-	}
-
-	if strings.Contains(caseListLine, "|open|") || strings.HasPrefix(strings.TrimSpace(caseListLine), "open|") {
-		t.Fatalf("expected `open` to be removed from subcommand case-list (hop open subcommand removed), got line:\n%s", caseListLine)
-	}
-}
-
-// TestShellInitZshListsHelpAsSubcommand asserts the case-list includes `help`
-// so that `hop help` and `hop help <subcommand>` reach cobra's auto-generated
-// help command. Without this, the shim would treat `hop help` as a bare-name
-// `cd` (1 arg) or hit the tool-form path (`hop help where`, 2 args). Same
-// two-phase structure as TestShellInitZshDoesNotListCodeAsSubcommand.
-func TestShellInitZshListsHelpAsSubcommand(t *testing.T) {
-	rootForCompletion = newRootCmd()
-	defer func() { rootForCompletion = nil }()
-
-	stdout, _, err := runArgs(t, "shell-init", "zsh")
-	if err != nil {
-		t.Fatalf("shell-init zsh: %v", err)
-	}
-	out := stdout.String()
-
-	var caseListLine string
-	for _, line := range strings.Split(out, "\n") {
-		if strings.Contains(line, "|completion)") && strings.Contains(line, "shell-init") {
-			caseListLine = line
-			break
-		}
-	}
-	if caseListLine == "" {
-		t.Fatalf("could not find subcommand case-list line. Output:\n%s", out)
-	}
-
-	if !strings.Contains(caseListLine, "|help|") {
-		t.Fatalf("expected `help` in the subcommand case-list (so `hop help` reaches cobra), got line:\n%s", caseListLine)
-	}
-}
-
-// TestShellInitZshListsPullAndSyncAsSubcommands asserts the case-list includes
-// `pull` and `sync` so the shim routes `hop pull <name>` and `hop sync <name>`
-// through `_hop_dispatch` (rule 3) instead of falling through to rule 5
-// (tool-form), which would rewrite them to `command hop -R pull <name>` and
-// fail with `-R: 'pull' not found.` (or worse, resolve `pull` as a non-existent
-// repo). Same two-phase structure as the other case-list assertions.
-func TestShellInitZshListsPullAndSyncAsSubcommands(t *testing.T) {
-	rootForCompletion = newRootCmd()
-	defer func() { rootForCompletion = nil }()
-
-	stdout, _, err := runArgs(t, "shell-init", "zsh")
-	if err != nil {
-		t.Fatalf("shell-init zsh: %v", err)
-	}
-	out := stdout.String()
-
-	var caseListLine string
-	for _, line := range strings.Split(out, "\n") {
-		if strings.Contains(line, "|completion)") && strings.Contains(line, "shell-init") {
-			caseListLine = line
-			break
-		}
-	}
-	if caseListLine == "" {
-		t.Fatalf("could not find subcommand case-list line. Output:\n%s", out)
-	}
-
-	if !strings.Contains(caseListLine, "|pull|") && !strings.HasPrefix(strings.TrimSpace(caseListLine), "pull|") {
-		t.Fatalf("expected `pull` in the subcommand case-list (so the shim routes `hop pull <name>` correctly), got line:\n%s", caseListLine)
-	}
-	if !strings.Contains(caseListLine, "|sync|") && !strings.HasPrefix(strings.TrimSpace(caseListLine), "sync|") {
-		t.Fatalf("expected `sync` in the subcommand case-list, got line:\n%s", caseListLine)
 	}
 }
 
@@ -427,12 +239,18 @@ func TestShellInitBashEmitsFunctionAndCompletion(t *testing.T) {
 	if !strings.Contains(out, `h() { hop "$@"; }`) {
 		t.Fatalf("expected `h()` alias, got:\n%s", out)
 	}
-	// Bash uses `complete -F __start_hop` (not `compdef`).
-	if !strings.Contains(out, "complete -o default -F __start_hop h hi") {
-		t.Fatalf("expected bash `complete -F __start_hop h hi`, got:\n%s", out)
+	// Bash uses `complete -F __start_hop` (not `compdef`), sharing with `h` only.
+	if !strings.Contains(out, "complete -o default -F __start_hop h\n") {
+		t.Fatalf("expected bash `complete -F __start_hop h` (no hi), got:\n%s", out)
+	}
+	if strings.Contains(out, "__start_hop h hi") {
+		t.Fatalf("expected bash completion to drop the `hi` alias, got:\n%s", out)
 	}
 	if !strings.Contains(out, "__start_hop") {
 		t.Fatalf("expected cobra-generated `__start_hop` completion fn, got:\n%s", out)
+	}
+	if !strings.Contains(out, "--shim-plan") {
+		t.Fatalf("expected bash shim to call --shim-plan, got:\n%s", out)
 	}
 }
 
@@ -470,86 +288,5 @@ func TestShellInitUnsupportedShell(t *testing.T) {
 	}
 	if !strings.Contains(withCode.msg, "unsupported shell 'fish'") {
 		t.Fatalf("unexpected message: %q", withCode.msg)
-	}
-}
-
-// TestShellInitOmitsHopWrapper asserts the shim no longer sets HOP_WRAPPER.
-// The previous open-verb implementation set HOP_WRAPPER=1 to let the binary
-// detect shim presence and gate a no-shim hint. After the cd-handoff moved
-// to a temp file (WT_CD_FILE), the binary is a transparent passthrough and
-// HOP_WRAPPER is no longer load-bearing — verifying it's gone guards
-// against accidental reintroduction during refactors.
-func TestShellInitOmitsHopWrapper(t *testing.T) {
-	rootForCompletion = newRootCmd()
-	defer func() { rootForCompletion = nil }()
-
-	stdout, _, err := runArgs(t, "shell-init", "zsh")
-	if err != nil {
-		t.Fatalf("shell-init zsh: %v", err)
-	}
-	out := stdout.String()
-	if strings.Contains(out, "HOP_WRAPPER") {
-		t.Fatalf("expected no `HOP_WRAPPER` reference (no longer load-bearing), got:\n%s", out)
-	}
-}
-
-// TestShellInitOpenVerbDispatch asserts the shim recognizes $2 == "open" in
-// rule-5 dispatch and routes it to _hop_dispatch open "$1". Without this arm,
-// `hop <name> open` would fall through to the otherwise-branch and be
-// rewritten to `command hop -R <name> open` (tool-form), bypassing the new verb.
-func TestShellInitOpenVerbDispatch(t *testing.T) {
-	rootForCompletion = newRootCmd()
-	defer func() { rootForCompletion = nil }()
-
-	stdout, _, err := runArgs(t, "shell-init", "zsh")
-	if err != nil {
-		t.Fatalf("shell-init zsh: %v", err)
-	}
-	out := stdout.String()
-	if !strings.Contains(out, `"$2" == "open"`) {
-		t.Fatalf("expected `\"$2\" == \"open\"` arm in dispatch, got:\n%s", out)
-	}
-	if !strings.Contains(out, `_hop_dispatch open "$1"`) {
-		t.Fatalf("expected `_hop_dispatch open \"$1\"` route, got:\n%s", out)
-	}
-}
-
-// TestShellInitOpenDispatchArmUsesTempFile asserts the open) arm in
-// _hop_dispatch routes the cd-target through a temp file via WT_CD_FILE,
-// not through stdout capture. wt's app menu is interactive — capturing
-// stdout with $(...) would swallow the menu and cause a hang. The temp-file
-// mechanism keeps wt's stdio fully connected to the user's terminal.
-func TestShellInitOpenDispatchArmUsesTempFile(t *testing.T) {
-	rootForCompletion = newRootCmd()
-	defer func() { rootForCompletion = nil }()
-
-	stdout, _, err := runArgs(t, "shell-init", "zsh")
-	if err != nil {
-		t.Fatalf("shell-init zsh: %v", err)
-	}
-	out := stdout.String()
-	// The arm creates a temp file via mktemp.
-	if !strings.Contains(out, "mktemp -t hop-open-cd.XXXXXX") {
-		t.Errorf("expected `mktemp -t hop-open-cd.XXXXXX` in open) arm, got:\n%s", out)
-	}
-	// It exports WT_CD_FILE prefix-style on the command line (so it's scoped
-	// to that single invocation, not leaked into the parent function's env).
-	if !strings.Contains(out, `WT_CD_FILE="$cdfile" WT_WRAPPER=1 command hop "$2" open`) {
-		t.Errorf("expected `WT_CD_FILE=\"$cdfile\" WT_WRAPPER=1 command hop \"$2\" open` invocation, got:\n%s", out)
-	}
-	// It does NOT capture stdout via $(...) — that would swallow wt's menu.
-	if strings.Contains(out, `target="$(command hop "$2" open)"`) {
-		t.Errorf("expected NO stdout capture in open) arm (would swallow wt's interactive menu), got:\n%s", out)
-	}
-	// It conditionally cds based on whether the temp file is non-empty.
-	if !strings.Contains(out, `[[ -s "$cdfile" ]]`) {
-		t.Errorf("expected `[[ -s \"$cdfile\" ]]` non-empty test on temp file, got:\n%s", out)
-	}
-	if !strings.Contains(out, `cd -- "$target"`) {
-		t.Errorf("expected `cd -- \"$target\"` cd line in open) arm, got:\n%s", out)
-	}
-	// It cleans up the temp file unconditionally.
-	if !strings.Contains(out, `rm -f "$cdfile"`) {
-		t.Errorf("expected `rm -f \"$cdfile\"` cleanup, got:\n%s", out)
 	}
 }

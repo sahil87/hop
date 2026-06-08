@@ -1,0 +1,49 @@
+id: gyo0
+name: 260608-gyo0-grammar-shim-refactor
+created: 2026-06-08T01:34:17Z
+created_by: sahil-noon
+change_type: refactor
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 8
+    acceptance_count: 25
+    acceptance_completed: 25
+confidence:
+    certain: 12
+    confident: 0
+    tentative: 0
+    unresolved: 0
+    score: 5.0
+    fuzzy: true
+    dimensions:
+        signal: 95.8
+        reversibility: 69.2
+        competence: 86.7
+        disambiguation: 85.8
+stage_metrics:
+    intake: {started_at: "2026-06-08T01:34:17Z", driver: fab-new, iterations: 1, completed_at: "2026-06-08T01:42:26Z"}
+    apply: {started_at: "2026-06-08T01:42:26Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-08T02:16:32Z"}
+    review: {started_at: "2026-06-08T02:16:32Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-08T02:29:00Z"}
+    hydrate: {started_at: "2026-06-08T02:29:00Z", driver: fab-fff, iterations: 1, completed_at: "2026-06-08T02:41:36Z"}
+    ship: {started_at: "2026-06-08T02:41:36Z", driver: fab-continue, iterations: 1}
+prs: []
+true_impact:
+    added: 0
+    deleted: 0
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-06-08T02:41:36Z"
+    computed_at_stage: hydrate
+# true_impact: lazily created on first apply-finish (no placeholder here).
+last_updated: 2026-06-08T02:41:36Z
