@@ -1,3 +1,15 @@
 {"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-06-07T15:28:50Z"}
 {"args":"Add a GitHub Actions CI workflow modeled on wt's ci.yml that makes passing tests a mandatory part of merging PRs — push to main + pull_request triggers, a test job (gofmt -l, go vet, go test) and a ci-gate job as the single required status check.","cmd":"fab-new","event":"command","ts":"2026-06-07T15:28:50Z"}
 {"delta":"+3.5","event":"confidence","score":3.5,"trigger":"calc-score","ts":"2026-06-07T15:29:56Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-06-07T16:44:48Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-06-07T16:45:08Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-06-07T16:45:31Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-06-07T16:46:18Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-06-07T18:06:04Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-06-07T18:06:43Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-06-07T18:08:37Z"}
+{"event":"review","result":"passed","ts":"2026-06-07T18:08:37Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-06-07T18:09:13Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-06-07T18:10:19Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-06-07T18:11:16Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-06-07T18:12:29Z"}

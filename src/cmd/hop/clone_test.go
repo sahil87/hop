@@ -235,7 +235,14 @@ func initBareRepo(t *testing.T, dir string) (url, srcPath string) {
 	srcPath = filepath.Join(dir, "source.git")
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", "init", "--bare", srcPath)
+	// Pin the bare repo's default branch to "main" with `-b main` so its
+	// symbolic HEAD deterministically matches the "main" branch the
+	// *WithCommit helpers push. Without this, the bare HEAD inherits the
+	// ambient `init.defaultBranch` (e.g. "master" on a stock GitHub Actions
+	// runner), leaving HEAD pointing at a ref that was never pushed —
+	// downstream clones then check out nothing and pull/sync tests fail in CI
+	// even though they pass on machines configured with `init.defaultBranch=main`.
+	cmd := exec.CommandContext(ctx, "git", "init", "--bare", "-b", "main", srcPath)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git init --bare: %v\noutput: %s", err, out)
 	}

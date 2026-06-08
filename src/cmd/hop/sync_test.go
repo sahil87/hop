@@ -639,7 +639,11 @@ func initNamedBareRepoWithCommit(t *testing.T, dir, name string) string {
 	}
 	bare := filepath.Join(dir, name+".git")
 	cmds := [][]string{
-		{"git", "init", "--bare", bare},
+		// `-b main` pins the bare repo's default branch to "main" so its
+		// symbolic HEAD matches the "main" branch pushed below — see the note
+		// in initBareRepo. Without it, the bare HEAD follows the ambient
+		// `init.defaultBranch` and breaks downstream clones on CI runners.
+		{"git", "init", "--bare", "-b", "main", bare},
 	}
 	for _, args := range cmds {
 		c := execCommand(args[0], args[1:]...)
