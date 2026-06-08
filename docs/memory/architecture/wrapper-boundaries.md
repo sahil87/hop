@@ -23,11 +23,11 @@ Test files (`*_test.go`) MAY use `os/exec` directly — to spawn the built binar
 | `Run(ctx, name, args...) ([]byte, error)` | Non-interactive. Captures stdout to bytes; stderr passes through to parent. |
 | `RunCapture(ctx, dir, name, args...) ([]byte, error)` | `Run` with an explicit `cmd.Dir`. Captures stdout, stderr passes through. Used by `internal/scan` for `git remote` / `git remote get-url` invocations scoped to a discovered repo's working tree (cmd.Dir is preferred over `git -C` so the subprocess sees the canonical cwd directly). |
 | `RunInteractive(ctx, stdin io.Reader, name, args...) (string, error)` | Pipes stdin, captures stdout to string; stderr passes through. Used for fzf. |
-| `RunForeground(ctx, dir, name, args...) (int, error)` | Runs a child with `cmd.Dir = dir` and stdin/stdout/stderr **inherited** from the parent. Returns the child's exit code on success (error nil); returns `(-1, ErrNotFound)` if the binary is missing; returns `(-1, err)` for other I/O / exec failures. The subprocess always inherits the parent's environment. When `dir` is `""`, the subprocess inherits the parent's working directory. Used by `hop -R` (with `dir = repo.Path`) and `hop <name> open` (with `dir = ""` — the verb forwards the path to wt as a positional arg rather than chdir'ing). |
+| `RunForeground(ctx, dir, name, args...) (int, error)` | Runs a child with `cmd.Dir = dir` and stdin/stdout/stderr **inherited** from the parent. Returns the child's exit code on success (error nil); returns `(-1, ErrNotFound)` if the binary is missing; returns `(-1, err)` for other I/O / exec failures. The subprocess always inherits the parent's environment. When `dir` is `""`, the subprocess inherits the parent's working directory. Used by `hop <name> open` (with `dir = ""` — the verb forwards the path to wt as a positional arg rather than chdir'ing) and `internal/update`'s `brew upgrade`. **Note (change `gyo0`)**: tool-form (`hop <name> <tool>`) no longer execs a child via the binary — it runs in the parent shell via the shim's `RUN_IN_PARENT` plan, so the former `-R` `RunForeground` call site is gone. |
 | `var ErrNotFound` | Sentinel returned when the binary is not on PATH. Callers use `errors.Is(err, proc.ErrNotFound)` to produce install-hint messages. |
 | `ExitCode(err) (int, bool)` | Helper to extract the child's exit code from an `*exec.ExitError` without callers needing to import `os/exec`. |
 
-All three runner functions use `exec.CommandContext(ctx, name, args...)` — never `exec.Command`, never shell strings. Callers supply the `context.Context` (with timeout for non-interactive ops; `context.Background()` for fzf and `-R` since the user is at the keyboard / running an arbitrary child).
+All three runner functions use `exec.CommandContext(ctx, name, args...)` — never `exec.Command`, never shell strings. Callers supply the `context.Context` (with timeout for non-interactive ops; `context.Background()` for fzf and `wt open` since the user is at the keyboard / interacting with a menu).
 
 ## `internal/fzf` — fzf wrapper
 
@@ -87,7 +87,7 @@ Per Constitution Principle IV ("Wrap, Don't Reinvent") — wrap external tools, 
 |---|---|---|
 | `git clone`, `git pull`, `git pull --rebase`, `git push` | `cmd/hop/clone.go`, `cmd/hop/pull.go`, `cmd/hop/sync.go` each call `proc.RunCapture(ctx, path, "git", ...)` (or `proc.Run` for clone) inline | Each call site is one line; `internal/proc.RunCapture` already enforces the cmd.Dir + argv-slice contract. A dedicated `internal/git/` package would be a thin pass-through that adds an indirection without containing logic. Promote later if a verb composes more git operations (e.g., a `status`-then-`fetch` flow that benefits from a single function boundary). |
 | YAML parsing | `internal/config/config.go` calls `yaml.Unmarshal` directly into `*yaml.Node` | `gopkg.in/yaml.v3` already is the wrapper. |
-| `-R` child exec | `cmd/hop/main.go::runDashR` calls `proc.RunForeground` | Wrapping is `internal/proc`'s job; the binary just composes. |
+| tool-form child exec | **none — the shim runs it** | Change `gyo0` removed the binary-side `-R` child exec (`runDashR` + `proc.RunForeground`). Tool-form now runs in the parent shell via the shim's `RUN_IN_PARENT` plan (`cd -- <path>; shift; "$@"`), so there is no Go-side exec to wrap — the binary only classifies and resolves a path. |
 | `wt open` invocation | `cmd/hop/open.go::runOpen` calls `proc.RunForeground(ctx, "", "wt", "open", repo.Path)` inline | Single operation; the binary is a transparent passthrough — the cd-handoff and env setup live in the shim, not the binary. A dedicated `internal/wt/` package would have nothing to encapsulate (one `RunForeground` call). |
 | `wt list --json` invocation | `cmd/hop/wt_list.go::defaultListWorktrees` calls `proc.RunCapture(ctx, repoPath, "wt", "list", "--json")` and unmarshals into `[]WtEntry`. Used by `resolve.go::resolveWorktreePath` (single-worktree path resolution for the `<name>/<wt>` grammar suffix), `ls.go::runLsTrees` (fan-out for `hop ls --trees`), and `repo_completion.go` (both the post-slash `completeWorktreeCandidates` and the root-only pre-slash eager branch in `completeRepoNames` — change `odle`). | Three distinct features, four call sites — same "promote later" rationale as `internal/git/`. Logic is a thin `RunCapture` + JSON unmarshal; a dedicated `internal/wt/` package would add an indirection without containing logic. The helper lives in `cmd/hop/` as a package-level `var listWorktrees = defaultListWorktrees` seam (mirroring `internal/fzf/fzf.go::runInteractive`) so tests inject fakes without spawning a real `wt`. Promote to `internal/wt/` if a fourth distinct feature emerges (e.g. a verb that needs `wt list --json` to drive new logic, not another consumer of the same single-shot-and-filter pattern). |
 
@@ -95,22 +95,23 @@ Per Constitution Principle IV ("Wrap, Don't Reinvent") — wrap external tools, 
 
 `hop <name> open` delegates to `wt open <path>` for app detection, menu selection, and launching. wt is a hard runtime dependency declared as a Homebrew formula `depends_on "sahil87/tap/wt"` in `.github/formula-template.rb` (which the release workflow rewrites into `Formula/hop.rb` at tag time).
 
-The binary is a transparent passthrough: it resolves the repo and `exec`s `wt open <path>` via `proc.RunForeground` with stdio fully inherited. **All env-var orchestration lives in the shell shim**, not the binary. This keeps the binary trivial (~25 lines) and respects the rule that interactive subprocesses can't multiplex stdout with a return-value channel.
+The binary is a transparent passthrough: it resolves the repo and `exec`s `wt open <path>` via `proc.RunForeground(ctx, "", "wt", "open", repo.Path)` with stdio fully inherited. **All env-var orchestration lives in the shell shim**, not the binary. This keeps the binary trivial (~20 lines) and respects the rule that interactive subprocesses can't multiplex stdout with a return-value channel.
 
-Two env vars cross the shim→wt boundary (the binary is a passive carrier — they're set on the shim's `command hop ... open` invocation prefix-style, hop's process inherits them, and wt sees them via the parent env):
+**Unified `WT_CD_FILE` cd-channel (change `gyo0`)**: `open` is classified as `PASSTHROUGH` by `--shim-plan`, and the shim's **`_hop_passthrough`** helper exports `WT_CD_FILE` on **every** passthrough invocation (not just `open`). One env var crosses the shim→wt boundary (the binary is a passive carrier — it's set on the shim's `command hop "$@"` invocation prefix-style, hop's process inherits it, and wt sees it via the parent env):
 
 | Env var | Lifecycle | Purpose |
 |---|---|---|
-| `WT_CD_FILE` | shim creates temp file via `mktemp -t hop-open-cd.XXXXXX`, exports the path on the `command hop "$2" open` line, reads the file after wt exits, removes it via `rm -f` | wt writes the resolved repo path to this file iff the user picks "Open here"; for any other menu choice (editors, terminals, file managers) wt leaves the file empty. The shim reads the file with `[[ -s "$cdfile" ]]` and `cd -- "$target"` if non-empty. |
-| `WT_WRAPPER=1` | shim exports prefix-style on the same invocation | Tells wt to suppress its `hint: "Open here" requires the shell wrapper... eval "$(wt shell-setup)"` message — hop's shim is the wrapper, and the cd-handoff is already covered by the shim's `WT_CD_FILE` read. |
+| `WT_CD_FILE` | `_hop_passthrough` creates a temp file via `mktemp -t hop-cd.XXXXXX`, exports its path on the `command hop "$@"` line, reads the file after the command exits, removes it via `rm -f` | wt writes the resolved repo path to this file iff the user picks "Open here"; for any other menu choice (editors, terminals, file managers) wt leaves the file empty. The shim reads the file with `[[ -s "$cdfile" ]]` and `cd -- "$target"` if non-empty (and the command exited 0). The **same channel** is reused by `hop clone <url>`, whose `writeCDTarget` writes the landed path to `WT_CD_FILE` when set. |
 
-**Why temp file (not stdout capture)**: wt's app menu is interactive and renders to stdout. Capturing stdout with `$(...)` would swallow the menu and leave the user staring at a blank prompt while wt blocks on stdin. The temp file is a side-channel that keeps wt's stdio fully connected to the user's terminal.
+**`WT_WRAPPER` was dropped (change `gyo0`)**: the shim no longer exports `WT_WRAPPER=1`. The env-orchestration narrowed to just `WT_CD_FILE`. (If wt prints its "Open here requires the shell wrapper" hint in some configs, that is now wt's own surface, not something hop suppresses.)
+
+**Why temp file (not stdout capture)**: wt's app menu is interactive and renders to stdout. Capturing stdout with `$(...)` would swallow the menu and leave the user staring at a blank prompt while wt blocks on stdin. The temp file is a side-channel that keeps wt's stdio fully connected to the user's terminal. This single channel **collapses the three former path-handoffs** — `where` (stdout), `open` (`WT_CD_FILE`), and `clone` (conditional-stdout) — into one unified mechanism (intake §4): `where` still prints to stdout for scripts (file stays empty, no cd); `open` and `clone <url>` route their cd-target through `WT_CD_FILE`.
 
 **Path-arg, not chdir**: hop passes the resolved repo path to wt as a positional arg (`wt open <path>`) rather than chdir'ing first. wt has a "path-first" branch that opens the app menu when called with an existing-directory arg; chdir'ing into a main-repo cwd would instead trigger wt's worktree-selection menu (which is wrong for hop's use case — hop wants to open the directory, not pick a worktree underneath it).
 
 **Why no `internal/wt` wrapper package**: the binary's call site is one `proc.RunForeground` line; there's nothing to encapsulate. The env-orchestration that *would* warrant a wrapper lives in the shim (shell, not Go). If hop grows additional wt-delegating verbs that share Go-side env construction (none planned), promote then.
 
-**Direct binary invocation** (no shim, e.g., `/path/to/hop outbox open`): the binary still execs `wt open <path>` correctly. wt's interactive menu reaches the user's terminal. Picking "Open here" with no `WT_CD_FILE` set falls through to wt's own `cd -- '<path>'` printout + `wt shell-setup` install hint — that's wt's contract, surfacing transparently.
+**Direct binary invocation** (no shim, e.g., `/path/to/hop webapp open`): the binary still execs `wt open <path>` correctly. wt's interactive menu reaches the user's terminal. Picking "Open here" with no `WT_CD_FILE` set falls through to wt's own `cd -- '<path>'` printout + `wt shell-setup` install hint — that's wt's contract, surfacing transparently.
 
 ## `wt list --json` integration (`cmd/hop/wt_list.go`)
 
@@ -154,7 +155,7 @@ func defaultListWorktrees(ctx context.Context, repoPath string) ([]WtEntry, erro
 
 ### Call sites
 
-- `resolve.go::resolveWorktreePath` — single-worktree lookup invoked by `resolveByName`'s `/`-suffix branch. Resolves `hop <name>/<wt> where`, `hop <name>/<wt> open`, `hop <name>/<wt> -R`, and the shim's `hop <name>/<wt> <tool>` tool-form.
+- `resolve.go::resolveWorktreePath` — single-worktree lookup invoked by `resolveByName`'s `/`-suffix branch. Resolves `hop <name>/<wt> where`, `hop <name>/<wt> open`, the `CD`/`RUN_IN_PARENT` plans for `hop <name>/<wt>` (bare cd and tool-form), and the `pull`/`push`/`sync` batch verbs on a `<name>/<wt>` selection.
 - `ls.go::runLsTrees` — fans `wt list --json` across every cloned repo in `hop.yaml` source order for the `hop ls --trees` flag. Per-row failures degrade gracefully as inline `(wt list failed: <err>)` rows; the FIRST `proc.ErrNotFound` aborts the run with `wtMissingHint`.
 
 ### Why no `internal/wt/` package
@@ -163,20 +164,21 @@ Two call sites is below the threshold for a dedicated wrapper package — same "
 
 ### Why no env-var orchestration
 
-Unlike `wt open` (which the shim wraps with `WT_CD_FILE` / `WT_WRAPPER` to handle the "Open here" cd-handoff), `wt list --json` is a pure read — no shell-mutation side channel, no interactive stdio, no orchestration needed. The hop side is just `RunCapture` and unmarshal; no shim changes were required for this surface.
+Unlike `wt open` (whose cd-target rides the shim's unified `WT_CD_FILE` channel for the "Open here" handoff), `wt list --json` is a pure read — no shell-mutation side channel, no interactive stdio, no orchestration needed. The hop side is just `RunCapture` and unmarshal; no shim changes were required for this surface.
 
 ## Composability primitives
 
-The change introduced two primitives that other operations build on:
+The composability primitives under the selection-first grammar (change `gyo0`):
 
-- **`hop <name> where`** — path resolver. Stdin/stdout-friendly: `cd "$(hop outbox where)"` works as a shell composition. The repo-verb grammar puts the repo first; the v0.x top-level `hop where <name>` was removed.
-- **`hop <name> -R <cmd>...`** — exec-in-context. Repo-scoped: run a child command with cwd set to the resolved repo dir, without leaving the parent shell's cwd changed. The shim's `hop <name> <tool>` tool-form sugar rewrites to this. The shim flips the user-facing form to the binary's internal `hop -R <name> <cmd>...` shape so `extractDashR` (in `cmd/hop/main.go`) is unchanged.
+- **`hop <name> where`** — path resolver. Stdin/stdout-friendly: `cd "$(hop webapp where)"` works as a shell composition (and is the scriptable fallback for callers that bypass the shim). Reached via the `PASSTHROUGH` plan so it stays a real binary command printing to stdout. The selection-first grammar puts the repo first; the v0.x top-level `hop where <name>` was removed.
+- **Tool-form `hop <name> <tool>...`** — exec-in-context, now owned by the **shell**, not the binary. The `--shim-plan` classifier returns `RUN_IN_PARENT\n<path>` and the shim runs `cd -- <path>; shift; "$@"`, executing the user's already-parsed words in the parent shell. This replaces the removed binary-side `-R` exec (`extractDashR`/`runDashR` in `main.go`) — the binary no longer execs the child, eliminating that Go-side wrapper concern entirely. Because the shim runs the user's literal words, aliases and shell functions resolve (a binary exec could not honor them).
 
-`hop pull` and `hop sync` (added in change `xj3k`) compose a third primitive — `resolveTargets` (`cmd/hop/resolve.go`) — which wraps `resolveByName` with a name-or-group rule order so registry verbs can take a single repo, a group, or `--all` from the same positional slot. Future batch-friendly verbs (e.g., `autosync`, `features`) build on `resolveTargets` rather than each re-implementing the rule order. Path resolution and exec stay on `where` and `-R`.
+The `pull`/`push`/`sync` batch verbs (action tokens, reoriented in change `gyo0`) compose a third primitive — `resolveTargets` (`cmd/hop/resolve.go`) — which wraps `resolveByName` with an `--all`/name-or-group rule order so the verbs can take a single repo, a worktree, a group, or `--all` from the same selection slot (`runBatchVerb` in `batch_verb.go`). Future batch-friendly verbs build on `resolveTargets` rather than each re-implementing the rule order. Path resolution stays on `where` (binary) and the `CD`/`RUN_IN_PARENT` plans (shim).
 
 ## Security guarantees
 
 1. **`exec.CommandContext` everywhere** — kernel never sees a shell string; argv is an explicit slice.
-2. **User input passes as args, not shell tokens** — repo names from `hop.yaml` reach `git clone` via `proc.Run("git", "clone", url, path)`; fzf queries reach fzf as `--query <q>` (a single arg) and the candidate list is on stdin; `-R`'s child argv is forwarded as a slice to `proc.RunForeground`.
-3. **No `sh -c`, no `bash -c`, no command-string interpolation anywhere in production code.**
-4. **Atomic file writes** — `internal/yamled` uses temp file + rename in the same directory, preserving the original on rename failure.
+2. **User input passes as args, not shell tokens** — repo names from `hop.yaml` reach `git clone` via `proc.Run("git", "clone", url, path)`; fzf queries reach fzf as `--query <q>` (a single arg) and the candidate list is on stdin.
+3. **`--shim-plan` is not an injection surface (change `gyo0`)** — the classifier never execs the user's action; it emits only the fixed 3-keyword vocabulary plus a resolved path used as a quoted `cd` operand. The shim runs the user's **already-parsed** `"$@"` (`RUN_IN_PARENT`) and **never `eval`s** binary stdout, so binary output is never re-parsed as code.
+4. **No `sh -c`, no `bash -c`, no command-string interpolation anywhere in production code.**
+5. **Atomic file writes** — `internal/yamled` uses temp file + rename in the same directory, preserving the original on rename failure.

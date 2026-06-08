@@ -26,7 +26,7 @@ repos:
 		t.Fatalf("write: %v", err)
 	}
 
-	if err := AppendURL(path, "default", "git@github.com:sahil87/outbox.git"); err != nil {
+	if err := AppendURL(path, "default", "git@github.com:sahil87/webapp.git"); err != nil {
 		t.Fatalf("AppendURL: %v", err)
 	}
 
@@ -42,13 +42,13 @@ repos:
 	if !strings.Contains(gotStr, "# the locator tool") {
 		t.Errorf("inline comment lost; got:\n%s", gotStr)
 	}
-	if !strings.Contains(gotStr, "git@github.com:sahil87/outbox.git") {
+	if !strings.Contains(gotStr, "git@github.com:sahil87/webapp.git") {
 		t.Errorf("appended URL missing; got:\n%s", gotStr)
 	}
-	// Order check: outbox should appear after wt
+	// Order check: webapp should appear after wt
 	wtIdx := strings.Index(gotStr, "wt.git")
-	outboxIdx := strings.Index(gotStr, "outbox.git")
-	if wtIdx < 0 || outboxIdx < 0 || outboxIdx < wtIdx {
+	webappIdx := strings.Index(gotStr, "webapp.git")
+	if wtIdx < 0 || webappIdx < 0 || webappIdx < wtIdx {
 		t.Errorf("appended URL not at end of list; got:\n%s", gotStr)
 	}
 }

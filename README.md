@@ -9,52 +9,55 @@ A small Go CLI that turns one config file (`hop.yaml`) into a personal directory
 ## Why hop?
 
 - **One config, every machine** — `hop.yaml` lives at `~/.config/hop/hop.yaml` and lists every repo you care about (with groups). Keep it in your dotfiles and symlink that path to it, and your repo directory follows you between laptops.
-- **Substring navigation** — `h ou<TAB>` or `hop ou` matches `outbox` and `cd`s your shell straight there. No more `cd ~/code/sahil87/outbox`.
-- **Run anything inside a repo, from anywhere** — `hop dotfiles cursor` opens your dotfiles in Cursor without changing your cwd. Works for any tool: `hop outbox git status`, `hop infra-tf terraform plan`, `hop loom npm test`.
-- **Batch git ops over groups** — `hop pull --all` pulls every cloned repo. `hop sync work` rebases-and-pushes every repo in the `work` group. Group-level fan-out built in.
+- **Substring navigation** — `h web<TAB>` or `hop web` matches `webapp` and `cd`s your shell straight there. No more `cd ~/code/sahil87/webapp`.
+- **Run anything inside a repo, from anywhere** — `hop dotfiles cursor .` opens your dotfiles in Cursor without changing your cwd. Works for any tool, PATH binary, or shell alias: `hop webapp git status`, `hop infra-tf terraform plan`, `hop loom npm test`.
+- **Batch git ops over groups** — `hop --all pull` pulls every cloned repo. `hop work sync` rebases-and-pushes every repo in the `work` group. Group-level fan-out built in.
 - **Bootstrap from disk, not yaml-by-hand** — `hop config scan ~/code` walks your existing clones, reads `git remote`, and populates `hop.yaml` for you. Comment-preserving merges, idempotent re-runs.
-- **Plays nicely with [`wt`](https://github.com/sahil87/wt)** — `hop <name> open` delegates to wt's app menu, so you get the same "open in editor / terminal / file manager / cd here" experience for every repo in the registry. The `hop <name>/<wt-name>` suffix lands you straight inside a worktree (`h outbox/feat-x` cds you there, `hop outbox/feat-x git status` runs git in it), and `hop ls --trees` shows worktree state across every repo at a glance.
+- **Plays nicely with [`wt`](https://github.com/sahil87/wt)** — `hop <name> open` delegates to wt's app menu, so you get the same "open in editor / terminal / file manager / cd here" experience for every repo in the registry. The `hop <name>/<wt-name>` suffix lands you straight inside a worktree (`h webapp/feat-x` cds you there, `hop webapp/feat-x git status` runs git in it), and `hop ls --trees` shows worktree state across every repo at a glance.
 
 ## The mental model
 
-Three blocks. The repo name is the anchor — same color in both rows, so you can see it move between forms.
+**One grammar:** `hop <selection> <action>`. The selection comes first — always. Then an action: a builtin verb (`cd`, `open`, `where`), a git batch verb (`pull`, `push`, `sync`), or *any* command, PATH binary, or shell alias.
 
 > **Colored half** = what you type · **grey half** = what the `h` alias or tab completion fills in.
 
-**General form:**
+**General form** — `hop <selection> <action>`:
 
 ![hop](https://img.shields.io/badge/h-op-9ca3af?labelColor=1f6feb&style=for-the-badge) ![arrow](https://img.shields.io/badge/-%E2%86%92-lightgrey?style=for-the-badge) ![repo](https://img.shields.io/badge/re-po--name-9ca3af?labelColor=7c3aed&style=for-the-badge) ![arrow](https://img.shields.io/badge/-%E2%86%92-lightgrey?style=for-the-badge) ![cmd](https://img.shields.io/badge/command-059669?style=for-the-badge)
 
 ```sh
-h  out<TAB>     cursor .            # → hop outbox cursor .
+h  web<TAB>     cursor .            # → hop webapp cursor .
 h  dot<TAB>     ls -la              # → hop dotfiles ls -la
+h  web<TAB>     git status         # → hop webapp git status
+h  web<TAB>     pull               # → hop webapp pull (git batch verb)
 ```
 
-**Git form** — git commands come to mind first, so the repo name moves to the end:
+The action is whatever follows the selection — a builtin verb, a git verb, a PATH binary, or even a shell alias you've defined (`hop webapp p`). The shim runs it with cwd set to the repo, then returns you to where you started.
 
-![hop](https://img.shields.io/badge/h-op-9ca3af?labelColor=1f6feb&style=for-the-badge) ![arrow](https://img.shields.io/badge/-%E2%86%92-lightgrey?style=for-the-badge) ![git](https://img.shields.io/badge/git--command-d97706?style=for-the-badge) ![arrow](https://img.shields.io/badge/-%E2%86%92-lightgrey?style=for-the-badge) ![repo](https://img.shields.io/badge/re-po--name-9ca3af?labelColor=7c3aed&style=for-the-badge)
+**Plural form** — the selection can be a group or `--all`, fanning the git batch verbs across many repos:
+
+![hop](https://img.shields.io/badge/h-op-9ca3af?labelColor=1f6feb&style=for-the-badge) ![arrow](https://img.shields.io/badge/-%E2%86%92-lightgrey?style=for-the-badge) ![sel](https://img.shields.io/badge/-%2D%2Dall%20%2F%20group-9ca3af?labelColor=7c3aed&style=for-the-badge) ![arrow](https://img.shields.io/badge/-%E2%86%92-lightgrey?style=for-the-badge) ![git](https://img.shields.io/badge/pull%20%2F%20push%20%2F%20sync-d97706?style=for-the-badge)
 
 ```sh
-hop  pull   out<TAB>                # → hop pull outbox
-hop  push   --all
-hop  sync   work                    # 'work' is a group
-hop  clone  out<TAB>
+hop  --all   pull                   # pull every cloned repo
+hop  work    sync                   # 'work' is a group → sync each repo in it
+hop  --all   push
 ```
 
-Same hop, same repo — just an ergonomic reorder for the case where the git verb is the first thing you think of.
+A plural selection accepts only the batch verbs (`pull`/`push`/`sync`) — `cd`, `open`, `where`, and arbitrary tools across many repos are refused (running an interactive tool across N repos makes no sense).
 
-**Worktree form** — the repo slot accepts an optional `/<wt-name>` suffix. Everything else is unchanged; every verb (cd, where, open, tool-form, -R) inherits it:
+**Worktree form** — the selection slot accepts an optional `/<wt-name>` suffix. Everything else is unchanged; every action inherits it:
 
 ![hop](https://img.shields.io/badge/h-op-9ca3af?labelColor=1f6feb&style=for-the-badge) ![arrow](https://img.shields.io/badge/-%E2%86%92-lightgrey?style=for-the-badge) ![repo](https://img.shields.io/badge/re-po--name-9ca3af?labelColor=7c3aed&style=for-the-badge) ![sep](https://img.shields.io/badge/-%2F-lightgrey?style=for-the-badge) ![wt](https://img.shields.io/badge/wo-rktree-9ca3af?labelColor=0d9488&style=for-the-badge) ![arrow](https://img.shields.io/badge/-%E2%86%92-lightgrey?style=for-the-badge) ![cmd](https://img.shields.io/badge/command-059669?style=for-the-badge)
 
 ```sh
-h  out<TAB>             # multi-worktree repo → TAB surfaces outbox, outbox/feat-x, outbox/hotfix
-h  out<TAB>/fe<TAB>     git status              # → hop outbox/feat-x git status
-h  out<TAB>/<TAB>       cursor .                # → TAB after / lists worktrees of outbox
-hop  out<TAB>/main      where                   # → main-worktree path (same as bare `hop outbox where`)
+h  web<TAB>             # multi-worktree repo → TAB surfaces webapp, webapp/feat-x, webapp/hotfix
+h  web<TAB>/fe<TAB>     git status              # → hop webapp/feat-x git status
+h  web<TAB>/<TAB>       cursor .                # → TAB after / lists worktrees of webapp
+hop  web<TAB>/main      where                   # → main-worktree path (same as bare `hop webapp where`)
 ```
 
-The `/<wt-name>` resolves via `wt list --json`, so wt must be on `PATH` for any `/`-suffixed query — bare `hop outbox` is unaffected. The full grammar (subcommands, verbs, flags) is in [Grammar at a glance](#grammar-at-a-glance) below.
+The `/<wt-name>` resolves via `wt list --json`, so wt must be on `PATH` for any `/`-suffixed query — bare `hop webapp` is unaffected. The full grammar (subcommands, verbs, flags) is in [Grammar at a glance](#grammar-at-a-glance) below.
 
 ## Install
 
@@ -85,7 +88,7 @@ eval "$(hop shell-init zsh)"   # in ~/.zshrc
 eval "$(hop shell-init bash)"  # in ~/.bashrc
 ```
 
-This installs the `hop` shell function, the `h` and `hi` aliases, the bare-name dispatcher, the `hop <name> <tool>` tool-form sugar, and tab completion. Without it, the binary still works — it just can't change your parent shell's directory (a Unix constraint, not a hop limitation). See [Gotchas](#gotchas) for the shim-vs-binary details.
+This installs the `hop` shell function, the `h` alias, and tab completion. The shell function asks the binary how to dispatch each invocation (cd, run-in-parent-shell, or pass through to the binary) and acts on the answer — so navigation and running commands/aliases in a repo's directory work, none of which a bare binary can do (changing the parent shell's cwd is a Unix constraint, not a hop limitation). See [Gotchas](#gotchas) for the shim-vs-binary details.
 
 > 💡 Have other sahil87 tools? [`shll shell-install`](https://github.com/sahil87/shll#shll-shell-install--wire-the-rc-file-recommended) handles all of their shell integrations and autocompletions at once.
 
@@ -118,25 +121,25 @@ Three things hop does. Each is a complete mental model on its own.
 ```text
 $ hop ls
 prompt-pantry  /Users/sahil/code/sahil-weaver/prompt-pantry
-outbox         /Users/sahil/code/sahil87/outbox
+webapp         /Users/sahil/code/sahil87/webapp
 fab-kit        /Users/sahil/code/sahil87/fab-kit
 wt             /Users/sahil/code/sahil87/wt
 idea           /Users/sahil/code/sahil87/idea
 …
 
-$ hop outbox where
-/Users/sahil/code/sahil87/outbox
+$ hop webapp where
+/Users/sahil/code/sahil87/webapp
 
-$ h out                       # substring match → cd into outbox
+$ h web                       # substring match → cd into webapp
 $ pwd
-/Users/sahil/code/sahil87/outbox
+/Users/sahil/code/sahil87/webapp
 
-$ h outbox/feat-x             # cd into the feat-x worktree of outbox (via wt list --json)
+$ h webapp/feat-x             # cd into the feat-x worktree of webapp (via wt list --json)
 $ pwd
-/Users/sahil/code/sahil87/outbox.worktrees/feat-x
+/Users/sahil/code/sahil87/webapp.worktrees/feat-x
 
 $ hop ls --trees              # one-shot worktree status across every cloned repo
-outbox    3 trees  (main, feat-x*, hotfix↑2)
+webapp    3 trees  (main, feat-x*, hotfix↑2)
 dotfiles  1 tree   (main)
 hop       2 trees  (main, refactor-resolve)
 loom      (not cloned)
@@ -144,19 +147,19 @@ loom      (not cloned)
 $ hop                         # bare → fzf picker over all repos, prints selection
 ```
 
-`h` is the single-letter alias. `hi <name>` (also installed by the shim) bypasses the shim and invokes the binary directly — useful when you want the path printed instead of `cd`'d.
+`h` is the single-letter alias for the `hop` shell function. To invoke the binary directly (bypassing the shim — e.g. for scripting), use `command hop <name> where`, which prints the path instead of `cd`-ing.
 
-The `/<wt-name>` suffix is optional, completes after `<TAB>` (so `h outbox/<TAB>` lists worktrees), and every verb inherits it — `hop outbox/feat-x where`, `hop outbox/feat-x open`, `hop outbox/feat-x git status`, all work. Bare `hop outbox` is unchanged. `wt` must be on `PATH` for any `/<wt>`-suffixed query.
+The `/<wt-name>` suffix is optional, completes after `<TAB>` (so `h webapp/<TAB>` lists worktrees), and every action inherits it — `hop webapp/feat-x where`, `hop webapp/feat-x open`, `hop webapp/feat-x git status`, all work. Bare `hop webapp` is unchanged. `wt` must be on `PATH` for any `/<wt>`-suffixed query.
 
 ### 2. Run anything inside a repo
 
-The tool-form `hop <name> <tool> [args...]` runs *anything* with cwd set to that repo, then returns you to where you started. The repo name is the first arg; the rest is forwarded verbatim to the child.
+`hop <selection> <action>` runs *anything* with cwd set to that repo, then returns you to where you started. The selection is the first arg; the rest is the action — a command, PATH binary, or shell alias — forwarded verbatim and run in your shell (so your aliases and functions resolve).
 
 ```text
 $ pwd
 /tmp/scratch
 
-$ hop outbox git status
+$ hop webapp git status
 On branch main
 Your branch is up to date with 'origin/main'.
 
@@ -171,42 +174,45 @@ A few useful variants:
 ```sh
 hop dotfiles cursor .                # open dotfiles in Cursor (the trailing . matters — see Gotchas)
 hop infra-tf terraform plan          # run terraform inside infra-tf
-hop outbox -R jq '.foo' file.json    # explicit -R form: same effect, clearer in scripts
-hop outbox open                      # delegates to wt's app menu (editor / terminal / cd here)
+hop webapp p                         # run your shell alias `p` inside webapp
+hop webapp open                      # delegates to wt's app menu (editor / terminal / cd here)
 ```
 
 ### 3. Batch git ops
 
-`pull`, `push`, and `sync` accept a repo name, a group name, or `--all`:
+The git batch verbs `pull`, `push`, and `sync` follow the same `hop <selection> <action>` grammar. The selection can be a single repo, a group, or `--all`:
 
 ```sh
-hop pull outbox                # pull a single repo
-hop pull default               # pull every cloned repo in the `default` group
-hop pull --all                 # pull every cloned repo in hop.yaml
-hop sync work                  # `git pull --rebase` then `git push` for every repo in `work`
-hop sync --all                 # same, every repo
+hop webapp pull                # pull a single repo
+hop default pull               # pull every cloned repo in the `default` group
+hop --all pull                 # pull every cloned repo in hop.yaml
+hop work sync                  # `git pull --rebase` then `git push` for every repo in `work`
+hop --all sync                 # same, every repo
 ```
 
-Each command emits a per-repo `✓` / `✗` / `skip` line on stderr and a final `summary: pulled=N skipped=M failed=K`. `sync` skips the push when rebase hits a conflict and prints a `git -C <path> rebase --continue` hint. Uncloned repos are silently skipped — `hop clone --all` first if you want to materialize them.
+Each command emits a per-repo `✓` / `✗` / `skip` line on stderr and a final `summary: pulled=N skipped=M failed=K`. `sync` skips the push when rebase hits a conflict and prints a `git -C <path> rebase --continue` hint. Uncloned repos are silently skipped — `hop --all clone` first if you want to materialize them. A plural selection (`--all` or a group) accepts only these batch verbs.
 
 ## Grammar at a glance
 
-The shim's rule is simpler than the spec makes it sound: **the first positional is either a subcommand or a repo name — never both.** Once you internalize that, everything else falls out.
+The rule is one shape: **`hop <selection> <action>`.** The first positional is either a subcommand or a selection (repo / worktree / group / `--all`); everything after a selection is the action.
 
-| You type | Shim does |
+| You type | hop does |
 |----------|-----------|
 | `hop` | Bare fzf picker over all repos. |
-| `hop <subcommand>` (`ls`, `clone`, `pull`, `sync`, `config`, `update`, …) | Routes to the subcommand. |
-| `hop <name>` | `cd` into the repo (shim-rewrites to `cd "$(hop <name> where)"`). |
+| `hop <subcommand>` (`ls`, `clone`, `add`, `rm`, `config`, `update`, …) | Routes to the subcommand. |
+| `hop <name>` | `cd` into the repo. |
 | `hop <name> cd` | Same — explicit verb form. |
 | `hop <name> where` | Prints the absolute path. |
 | `hop <name> open` | Delegates to wt's app menu. |
-| `hop <name> -R <cmd> ...` | Runs `<cmd> ...` with cwd = repo. |
-| `hop <name> <tool> ...` | Sugar — shim rewrites to `hop -R <name> <tool> ...`. |
-| `hop <name>/<wt>` | Same as `hop <name>` but lands in the named worktree (resolved via `wt list --json`). All verbs above accept the suffix — `<name>/<wt> where`, `<name>/<wt> open`, `<name>/<wt> <tool> ...`, etc. |
+| `hop <name> <cmd> ...` | Runs `<cmd> ...` (command, PATH binary, or shell alias) with cwd = repo, in your shell. |
+| `hop <name> pull` / `push` / `sync` | Git batch verb on the selection (repo, worktree, or group). |
+| `hop <name>/<wt>` | Same as `hop <name>` but lands in the named worktree (resolved via `wt list --json`). All actions above accept the suffix — `<name>/<wt> where`, `<name>/<wt> open`, `<name>/<wt> git status`, etc. |
+| `hop --all <verb>` / `hop <group> <verb>` | Plural selection — runs the batch verb (`pull`/`push`/`sync` only) across every matched repo. |
 | `hop ls --trees` | Per-repo worktree summary across the registry (`*` = dirty, `↑N` = unpushed commits). |
 
-Tab completion knows which slot you're in: `hop <TAB>` offers subcommands + repo names; `hop outbox <TAB>` offers verbs + tools; `hop outbox/<TAB>` offers worktree names for that repo. When `hop <prefix><TAB>` uniquely resolves to a cloned repo with 2+ worktrees, completion surfaces both the bare repo and `<repo>/<wt>` candidates inline — press Space to commit the main checkout, or pick a worktree from the menu.
+Tab completion knows which slot you're in: `hop <TAB>` offers subcommands + repo names; `hop webapp <TAB>` offers verbs + tools; `hop webapp/<TAB>` offers worktree names for that repo. When `hop <prefix><TAB>` uniquely resolves to a cloned repo with 2+ worktrees, completion surfaces both the bare repo and `<repo>/<wt>` candidates inline — press Space to commit the main checkout, or pick a worktree from the menu.
+
+Under the hood, the shell function asks the binary how to dispatch (`hop --shim-plan …`, an internal call) and gets back one of three answers — cd here, run this in the parent shell, or pass through to the binary. The shim never `eval`s binary output; it runs your already-typed words. Because the binary owns the classification, the shim hard-codes no subcommand names and can't drift out of sync with the binary.
 
 ## Config schema
 
@@ -231,10 +237,10 @@ A flat list (`default` above) uses convention: each URL lands at `<code_root>/<o
 
 ## Gotchas
 
-- **`hop <name>` and `h <name>` need the shell shim.** A binary can't change its parent shell's cwd — that's the same Unix constraint wt hits with its "Open here" menu option. Without the shim, the binary prints a hint pointing at `eval "$(hop shell-init zsh)"` or the workaround `cd "$(hop <name> where)"`.
-- **Tool-form (`hop <name> <tool>`) is shim-only too.** The shim rewrites it to `hop -R <name> <tool>` before the binary sees it. In scripts and CI, use the binary-direct form `hop -R <name> <tool> ...` (and `hop <name> where` for path resolution — that one's handled by the binary).
-- **Substring match is on the repo name only.** Not URL, not path, not group. `hop ou` matches `outbox` but not the URL `git@github.com:org/outbox.git`. When two repos in different groups share a name, the picker shows `name [group]` to disambiguate.
-- **No `--force` on `push` or `sync`.** Intentional — for nuanced single-repo cases, reach for `hop <name> -R git push --force` and you'll get the full git output. The batch wrappers stay safe by default.
+- **`hop <name>`, `hop <name> <cmd>`, and `h <name>` need the shell shim.** A binary can't change its parent shell's cwd, nor run a command in it — that's the same Unix constraint wt hits with its "Open here" menu option. Without the shim, the binary prints a hint pointing at `eval "$(hop shell-init zsh)"` or the workaround `cd "$(command hop <name> where)"`.
+- **Running commands in a repo is shim-only.** The shim cd's into the repo and runs your action in the parent shell — so PATH binaries *and* your shell aliases/functions resolve. In scripts and CI that bypass the shim, resolve the path yourself with `command hop <name> where` (handled directly by the binary) and run the tool from there.
+- **Substring match is on the repo name only.** Not URL, not path, not group. `hop web` matches `webapp` but not the URL `git@github.com:org/webapp.git`. When two repos in different groups share a name, the picker shows `name [group]` to disambiguate.
+- **No `--force` on the `push` / `sync` batch verbs.** Intentional — for nuanced single-repo cases, reach for `hop <name> git push --force` and you'll get the full git output. The batch verbs stay safe by default.
 - **`hop <name> cursor` / `code` need a trailing `.`** — e.g. `hop dotfiles cursor .`. Not a hop quirk: both editors take `[paths...]` as positional args and, when invoked with none, restore the previously open folder instead of opening the cwd. The `.` is what tells them "open *this* directory." Tools that operate on cwd by default (`git status`, `terraform plan`, `ls`, `npm test`) don't need it.
 - **The `<name>/<wt>` suffix needs `wt` on `PATH`.** Hop shells out to `wt list --json` to resolve the worktree name (no state cached in `hop.yaml` — worktrees are wt's domain). Bare `hop <name>` queries never invoke wt. The Homebrew formula pulls wt in as a dependency; for non-brew installs, `brew install sahil87/tap/wt` or build from source.
 

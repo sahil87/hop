@@ -12,50 +12,9 @@ import (
 	"github.com/sahil87/hop/internal/repos"
 )
 
-// newPullCmd builds the `hop pull` subcommand.
-//
-//	hop pull [<name-or-group>] [--all]
-//
-// Wraps `git pull` over a single repo (substring match), every cloned repo in
-// a named group (exact group match), or every cloned repo in the registry
-// (--all). See spec for argument-resolution rules and exit-code policy.
-func newPullCmd() *cobra.Command {
-	var all bool
-	cmd := &cobra.Command{
-		Use:               "pull [<name-or-group>] [--all]",
-		Short:             "Run 'git pull' in a repo, group, or every cloned repo with --all",
-		Args:              cobra.MaximumNArgs(1),
-		ValidArgsFunction: completeRepoOrGroupNames,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			query := ""
-			if len(args) == 1 {
-				query = args[0]
-			}
-			if all && query != "" {
-				return &errExitCode{code: 2, msg: "hop pull: --all conflicts with positional <name-or-group>"}
-			}
-			if !all && query == "" {
-				return &errExitCode{code: 2, msg: "hop pull: missing <name-or-group>. Pass a name, a group, or --all."}
-			}
-
-			targets, mode, err := resolveTargets(query, all)
-			if err != nil {
-				if errors.Is(err, errFzfMissing) {
-					fmt.Fprintln(cmd.ErrOrStderr(), fzfMissingHint)
-					return errSilent
-				}
-				return err
-			}
-
-			if mode == modeSingle {
-				return pullSingle(cmd, targets[0])
-			}
-			return pullBatch(cmd, targets)
-		},
-	}
-	cmd.Flags().BoolVar(&all, "all", false, "run 'git pull' in every cloned repo from hop.yaml")
-	return cmd
-}
+// pull.go wraps `git pull`. The selection-first entry point lives in
+// batch_verb.go (`hop <selection> pull`); the runners below are shared by the
+// single and batch paths.
 
 // pullSingle handles single-repo mode (rule 3 substring match → one Repo).
 // Skip-not-cloned and pull failures both exit 1; success is exit 0.

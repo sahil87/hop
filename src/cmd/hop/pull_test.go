@@ -45,27 +45,32 @@ func pullSyncYAMLFixture(t *testing.T) (configPath, defaultDir, vendorDir string
 	return configPath, defaultDir, vendorDir
 }
 
-func TestPullUsageErrorWhenNoArgsAndNoAll(t *testing.T) {
+// TestPullPluralNoActionErrors verifies a plural selection (group) with no
+// action token is a usage error under the selection-first grammar — replaces
+// the old `hop pull` (no positional) usage error.
+func TestPullPluralNoActionErrors(t *testing.T) {
 	_, _, _ = pullSyncYAMLFixture(t)
 
-	_, _, err := runArgs(t, "pull")
+	_, _, err := runArgs(t, "default")
 	if err == nil {
-		t.Fatalf("expected usage error")
+		t.Fatalf("expected usage error for plural selection with no action")
 	}
-	if !strings.Contains(err.Error(), "missing <name-or-group>") {
-		t.Fatalf("expected missing arg hint, got %q", err.Error())
+	if !strings.Contains(err.Error(), "plural selection") {
+		t.Fatalf("expected plural-selection hint, got %q", err.Error())
 	}
 }
 
-func TestPullUsageErrorWhenAllAndPositional(t *testing.T) {
+// TestPullAllInteractiveRefused verifies an interactive action on a plural
+// selection is refused — replaces the old `--all conflicts with positional`.
+func TestPullAllInteractiveRefused(t *testing.T) {
 	_, _, _ = pullSyncYAMLFixture(t)
 
-	_, _, err := runArgs(t, "pull", "alpha", "--all")
+	_, _, err := runArgs(t, "--all", "code")
 	if err == nil {
-		t.Fatalf("expected usage error for --all + positional")
+		t.Fatalf("expected refusal of interactive action on plural selection")
 	}
-	if !strings.Contains(err.Error(), "--all conflicts with positional") {
-		t.Fatalf("expected conflict hint, got %q", err.Error())
+	if !strings.Contains(err.Error(), "not a batch action") {
+		t.Fatalf("expected not-a-batch-action hint, got %q", err.Error())
 	}
 }
 
@@ -74,7 +79,7 @@ func TestPullSingleNotClonedExitsWithSkipMessage(t *testing.T) {
 	// Don't pre-create .git for alpha — it's not cloned.
 	_ = defaultDir
 
-	_, stderr, err := runArgs(t, "pull", "alpha")
+	_, stderr, err := runArgs(t, "alpha", "pull")
 	if err == nil {
 		t.Fatalf("expected error for not-cloned single repo")
 	}
@@ -88,7 +93,7 @@ func TestPullBatchGroupSkipsNotClonedAndReportsSummary(t *testing.T) {
 	// Neither alpha nor beta has a .git dir — both should be skipped.
 	_ = defaultDir
 
-	_, stderr, err := runArgs(t, "pull", "default")
+	_, stderr, err := runArgs(t, "default", "pull")
 	if err != nil {
 		t.Fatalf("expected nil err for batch with all-skipped, got %v", err)
 	}
@@ -107,7 +112,7 @@ func TestPullBatchGroupSkipsNotClonedAndReportsSummary(t *testing.T) {
 func TestPullBatchAllIteratesAllRepos(t *testing.T) {
 	_, _, _ = pullSyncYAMLFixture(t)
 
-	_, stderr, err := runArgs(t, "pull", "--all")
+	_, stderr, err := runArgs(t, "--all", "pull")
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -125,7 +130,7 @@ func TestPullBatchAllIteratesAllRepos(t *testing.T) {
 func TestPullBatchOutputOrderMatchesYAMLSourceOrder(t *testing.T) {
 	_, _, _ = pullSyncYAMLFixture(t)
 
-	_, stderr, _ := runArgs(t, "pull", "--all")
+	_, stderr, _ := runArgs(t, "--all", "pull")
 	out := stderr.String()
 	idxAlpha := strings.Index(out, "alpha")
 	idxBeta := strings.Index(out, "beta")
@@ -138,7 +143,7 @@ func TestPullBatchOutputOrderMatchesYAMLSourceOrder(t *testing.T) {
 func TestPullBatchGroupOnlyIncludesGroupMembers(t *testing.T) {
 	_, _, _ = pullSyncYAMLFixture(t)
 
-	_, stderr, _ := runArgs(t, "pull", "vendor")
+	_, stderr, _ := runArgs(t, "vendor", "pull")
 	out := stderr.String()
 	if !strings.Contains(out, "skip: gamma not cloned") {
 		t.Errorf("expected gamma in vendor batch, got: %s", out)
@@ -154,21 +159,26 @@ func TestPullBatchGroupOnlyIncludesGroupMembers(t *testing.T) {
 func TestPullStdoutIsEmpty(t *testing.T) {
 	_, _, _ = pullSyncYAMLFixture(t)
 
-	stdout, _, _ := runArgs(t, "pull", "--all")
+	stdout, _, _ := runArgs(t, "--all", "pull")
 	if got := stdout.String(); got != "" {
 		t.Fatalf("expected empty stdout, got %q", got)
 	}
 }
 
-func TestPullCobraRejectsTwoPositionals(t *testing.T) {
+// TestPullToolFormErrorsInBinary verifies that a non-verb action token on a
+// singular selection (tool-form) errors in the binary with the tool-form hint —
+// tool-form runs in the shell via the shim's RUN_IN_PARENT plan, so the binary
+// can't honor it directly. Replaces the old cobra two-positional cap test
+// (the root command now accepts arbitrary args; the cap moved into runRoot).
+func TestPullToolFormErrorsInBinary(t *testing.T) {
 	_, _, _ = pullSyncYAMLFixture(t)
 
-	_, _, err := runArgs(t, "pull", "alpha", "beta")
+	_, _, err := runArgs(t, "alpha", "echo")
 	if err == nil {
-		t.Fatalf("expected cobra to reject 2 positionals")
+		t.Fatalf("expected tool-form error in the binary")
 	}
-	if !strings.Contains(err.Error(), "accepts at most 1 arg") {
-		t.Fatalf("expected cobra MaximumNArgs error, got: %v", err)
+	if !strings.Contains(err.Error(), "is not a hop verb") {
+		t.Fatalf("expected tool-form hint, got: %v", err)
 	}
 }
 
@@ -212,7 +222,7 @@ func TestPullSingleHappyPathAgainstRealGit(t *testing.T) {
 		t.Fatalf("setup clone: %v", err)
 	}
 
-	_, stderr, err := runArgs(t, "pull", "source")
+	_, stderr, err := runArgs(t, "source", "pull")
 	if err != nil {
 		t.Fatalf("hop pull source: %v\nstderr: %s", err, stderr.String())
 	}

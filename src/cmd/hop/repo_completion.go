@@ -57,7 +57,10 @@ func completeRepoNames(cmd *cobra.Command, args []string, toComplete string) ([]
 	isRoot := cmd.Parent() == nil
 	if len(args) == 1 {
 		if isRoot {
-			return []string{"cd", "where", "open"}, cobra.ShellCompDirectiveNoFileComp
+			// $2 action position: builtin verbs + reoriented batch verbs.
+			// pull/push/sync are action tokens now (not subcommands), so they
+			// complete here after a selection, not at $1.
+			return []string{"cd", "where", "open", "pull", "push", "sync"}, cobra.ShellCompDirectiveNoFileComp
 		}
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
@@ -164,39 +167,4 @@ func completeCloneArg(cmd *cobra.Command, args []string, toComplete string) ([]s
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 	return completeRepoNames(cmd, args, toComplete)
-}
-
-// completeRepoOrGroupNames is the ValidArgsFunction for `hop pull` and `hop sync`.
-// The positional accepts a repo name OR a group name (resolved via
-// resolveTargets, see resolve.go), so completion advertises both. When --all is
-// set the positional is rejected by RunE, so we suppress completion. When the
-// user has already typed a positional we also suppress. Names that appear as
-// both a repo and a group are de-duplicated so each candidate surfaces once.
-func completeRepoOrGroupNames(cmd *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
-	if len(args) > 0 {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
-	if all := cmd.Flag("all"); all != nil && all.Changed {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
-	rs, err := loadRepos()
-	if err != nil {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
-	seen := make(map[string]struct{})
-	var out []string
-	for _, r := range rs {
-		if _, ok := seen[r.Group]; !ok {
-			seen[r.Group] = struct{}{}
-			out = append(out, r.Group)
-		}
-	}
-	for _, r := range rs {
-		if _, ok := seen[r.Name]; ok {
-			continue
-		}
-		seen[r.Name] = struct{}{}
-		out = append(out, r.Name)
-	}
-	return out, cobra.ShellCompDirectiveNoFileComp
 }

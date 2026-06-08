@@ -15,8 +15,10 @@ hop/
 │   ├── go.sum
 │   ├── cmd/
 │   │   └── hop/
-│   │       ├── main.go                   # entrypoint + translateExit + extractDashR + runDashR
-│   │       ├── root.go                   # cobra root + version + rootLong + repo-verb dispatch (RunE) + cdHint/bareNameHint/toolFormHintFmt constants
+│   │       ├── main.go                   # entrypoint + translateExit + extractShimPlan (pre-cobra --shim-plan split)
+│   │       ├── shim_plan.go              # --shim-plan classifier: runShimPlan emits CD/RUN_IN_PARENT/PASSTHROUGH (binary-owned classification, no eval)
+│   │       ├── batch_verb.go             # runBatchVerb: selection-first pull/push/sync entry (reoriented from subcommands)
+│   │       ├── root.go                   # cobra root + version + rootLong + selection-first dispatch (runRoot/runPluralSelection) + cdHint/bareNameHint/toolFormHintFmt constants
 │   │       ├── resolve.go                # bare `hop <name>` resolver helpers (loadRepos, resolveByName, resolveWorktreePath, resolveOne, resolveAndPrint, buildPickerLines) — called by root's RunE for `hop <name> where`; first-`/` split for `<name>/<wt>` grammar
 │   │       ├── wt_list.go                # `WtEntry` JSON contract + `listWorktrees` package-level var seam + `wtListTimeout = 5 * time.Second`; used by `resolveWorktreePath` and `runLsTrees`
 │   │       ├── clone.go                  # `hop clone` (single, --all, ad-hoc URL)
@@ -25,7 +27,7 @@ hop/
 │   │       ├── config.go                 # `hop config init` and `hop config where`
 │   │       ├── update.go                 # `hop update` (delegates to `internal/update`)
 │   │       ├── *_test.go                 # adjacent unit tests per file
-│   │       ├── dashr_test.go             # extractDashR argv-split tests
+│   │       ├── shim_plan_test.go         # --shim-plan classifier tests (CD/RUN_IN_PARENT/PASSTHROUGH/plural-guard)
 │   │       ├── integration_test.go       # builds the binary and exercises it end-to-end
 │   │       └── testutil_test.go          # shared test helpers
 │   └── internal/
@@ -101,17 +103,19 @@ Tests import packages as `github.com/sahil87/hop/internal/config`, etc.
 
 ### `cmd/hop`
 
-Cobra command definitions, flag parsing, exit code handling, the `-R` argv splitter.
+Cobra command definitions, flag parsing, exit code handling, the `--shim-plan` classifier.
 
 | File | Exports / contents |
 |---|---|
-| `main.go` | `func main()` — builds rootCmd, sets `Version`, captures `rootForCompletion`, runs `extractDashR` (pre-cobra), calls `Execute()`. Defines `translateExit` (sole stderr/exit path), `extractDashR` (argv splitter for `-R`), `runDashR` (resolve + `proc.RunForeground`), and the typed sentinels (`errSilent`, `errFzfMissing`, `errFzfCancelled`, `errExitCode`). Holds the package-level `var version = "dev"` (overridden via `-ldflags "-X main.version=…"`). |
-| `root.go` | `func newRootCmd() *cobra.Command` — root command with `Args: cobra.MaximumNArgs(2)` and a `RunE` that implements the repo-verb grammar at $1/$2 (0 args → bare picker; 1 arg → bareNameHint exit-2; 2 args → switch on $2: `where` resolves, `cd` errors with `cdHint`, anything-else errors with `fmt.Sprintf(toolFormHintFmt, $2)`). Sets `Version`, `SilenceUsage = true`, `SilenceErrors = true`. Holds `rootLong` (the help-text Usage table and Notes block), the three hint constants (`bareNameHint`, `cdHint`, `toolFormHintFmt`), and the `AddCommand` wiring. The `cd` and `where` subcommand factories were removed in the repo-verb grammar flip — verbs live at $2, not $1. |
+| `main.go` | `func main()` — builds rootCmd, sets `Version`, captures `rootForCompletion`, runs `extractShimPlan` (pre-cobra), calls `Execute()`. Defines `translateExit` (sole stderr/exit path) and the typed sentinel `errExitCode`. Holds the package-level `var version = "dev"` (overridden via `-ldflags "-X main.version=…"`). |
+| `shim_plan.go` | The hidden `--shim-plan` classifier (binary-owned classification, no eval). `extractShimPlan(args)` strips the flag pre-cobra; `runShimPlan(out, errOut, args)` classifies the user's argv and emits the fixed 3-keyword protocol (`CD\n<path>` / `RUN_IN_PARENT\n<path>` / `PASSTHROUGH`). Defines the protocol-keyword constants and `batchVerbs`. Plural-selection guard returns exit 2 for non-batch actions. |
+| `batch_verb.go` | `func runBatchVerb(cmd, verb, selection, all)` — selection-first entry for `pull`/`push`/`sync` (reoriented from cobra subcommands). Resolves via `resolveTargets` and dispatches to the existing `pullSingle`/`pullBatch`/`pushSingle`/`pushBatch`/`syncSingle`/`syncBatch` runners (preserving summaries + exit-code policy). |
+| `root.go` | `func newRootCmd() *cobra.Command` — root command with `Args: cobra.ArbitraryArgs`, a `--all` flag, and a `RunE` (`runRoot`) that implements the selection-first grammar (0 args → bare picker; 1 arg → bareNameHint or plural-group; 2+ args → switch on the action: `where` resolves, `open` → `runOpen`, `pull`/`push`/`sync` → `runBatchVerb`, `cd` errors with `cdHint`, anything-else errors with `fmt.Sprintf(toolFormHintFmt, action)`). Plural selection → `runPluralSelection`. Sets `Version`, `SilenceUsage = true`, `SilenceErrors = true`. Holds `rootLong`, the hint constants, and the `AddCommand` wiring (no `pull`/`push`/`sync` subcommands — they're action tokens). |
 | `resolve.go` | Resolution helpers shared across the root command and `clone`. Exports: `loadRepos()`, `resolveByName(query)`, `resolveWorktreePath(repo, wtName)`, `resolveOne(cmd, query)`, `resolveAndPrint(cmd, query)`, `buildPickerLines(rs)`. Also defines `fzfMissingHint`, `wtMissingHint`, `errFzfCancelled`, `errFzfMissing`, `errSilent`. `resolveByName` splits on the first `/` for the `<name>/<wt>` grammar (change `7eab`) — empty LHS/RHS yields `*errExitCode{code: 2}`; otherwise recurses on the LHS, then delegates to `resolveWorktreePath` which guards against uncloned repos, invokes `listWorktrees` (from `wt_list.go`), and returns a shallow-copied `*Repo` whose `Path` is the worktree's. Renamed from `where.go` when the `hop where <name>` subcommand was removed (the file no longer hosts a cobra factory — just the helpers). |
 | `wt_list.go` | `WtEntry` struct (`{Name, Branch, Path, IsMain, IsCurrent, Dirty, Unpushed}`), `wtListTimeout = 5 * time.Second` constant, `var listWorktrees = defaultListWorktrees` package-level seam, `defaultListWorktrees(ctx, repoPath)` and `unmarshalWtEntries(out)`. Wraps a single `proc.RunCapture` invocation of `wt list --json` with a 5-second per-call timeout (matching `internal/scan`'s `git remote` precedent) and a `[]WtEntry` unmarshal. The seam pattern mirrors `internal/fzf/fzf.go::runInteractive` — tests inject fakes without spawning a real `wt`. Two production consumers: `resolveWorktreePath` and `runLsTrees`. Helper stays inline in `cmd/hop/` rather than a dedicated `internal/wt/` package — two call sites is below the threshold, same "promote later" rationale as `internal/git/`. |
 | `clone.go` | `func newCloneCmd() *cobra.Command` — handles three forms: `<name>`, `--all`, `<url>`. URL detection via `looksLikeURL`. Holds `cloneTimeout` (10 minutes), `gitMissingHint`. URL form delegates the YAML write to `internal/yamled.AppendURL`. |
 | `ls.go` | `func newLsCmd() *cobra.Command` — `cobra.NoArgs` plus a `--trees` boolean flag. Default path (`runLsPlain`) is unchanged from pre-`7eab`. With `--trees`, `runLsTrees` fans `wt list --json` across configured repos in source order via `listWorktrees`, emitting per-row `(not cloned)`, `(wt list failed: <err>)`, or `{N} tree(s)  (<wt-list>)` summaries. The FIRST `proc.ErrNotFound` from wt aborts the run with the `wtMissingHint`. Defines `wtDirtyGlyph = "*"` and `wtUnpushedGlyph = "↑"` constants. |
-| `shell_init.go` | `func newShellInitCmd() *cobra.Command`. Emits the shared `posixInit` raw-string constant (defines `hop()`, `_hop_dispatch()`, `h()`, `hi()`; tool-form dispatch built in) followed by cobra-generated completion: `rootForCompletion.GenZshCompletion(out)` + `compdef _hop h hi` for zsh, `rootForCompletion.GenBashCompletionV2(out, true)` + `complete -o default -F __start_hop h hi` for bash. |
+| `shell_init.go` | `func newShellInitCmd() *cobra.Command`. Emits the shared `posixInit` raw-string constant (defines `hop()` — a logic-free interpreter of the `--shim-plan` protocol — plus `_hop_passthrough()` and `h()`; no `_hop_dispatch`, no `hi`) followed by cobra-generated completion: `rootForCompletion.GenZshCompletion(out)` + `compdef _hop h` for zsh, `rootForCompletion.GenBashCompletionV2(out, true)` + `complete -o default -F __start_hop h` for bash. |
 | `config.go` | `func newConfigCmd() *cobra.Command` — parent for `init` and `where`; uses `cobra.Command{Use: "config"}` with `AddCommand(newConfigInitCmd(), newConfigWhereCmd())`. |
 
 ### `internal/config`
@@ -185,11 +189,11 @@ Test files MAY use `os/exec` directly — to spawn the built binary in integrati
 |---|---|
 | `func Run(ctx, name, args...) ([]byte, error)` | Non-interactive. Captures stdout to bytes; stderr passes through to parent. Used for `git`, `code`, `open`/`xdg-open`. |
 | `func RunInteractive(ctx, stdin io.Reader, name, args...) (string, error)` | Pipes stdin, captures stdout to string; stderr passes through. Used for `fzf`. |
-| `func RunForeground(ctx, dir, name, args...) (int, error)` | Runs a child with `cmd.Dir = dir` and stdin/stdout/stderr inherited. Returns the child's exit code on success (error nil); `(-1, ErrNotFound)` if the binary is missing; `(-1, err)` for other failures. Used by `hop -R` (and the shim's tool-form sugar). |
+| `func RunForeground(ctx, dir, name, args...) (int, error)` | Runs a child with `cmd.Dir = dir` and stdin/stdout/stderr inherited. Returns the child's exit code on success (error nil); `(-1, ErrNotFound)` if the binary is missing; `(-1, err)` for other failures. Used by `hop <name> open` (execs `wt open <path>`). Tool-form no longer uses this — it runs in the parent shell via the shim's `RUN_IN_PARENT` plan. |
 | `var ErrNotFound` | Sentinel returned when the binary is not on PATH. Callers use `errors.Is(err, proc.ErrNotFound)`. |
 | `func ExitCode(err error) (int, bool)` | Helper to extract a child's exit code from `*exec.ExitError` without callers importing `os/exec`. |
 
-Default timeouts: callers MUST construct a `context.Context` with a timeout for non-interactive ops (e.g., 5s for read-only ops, 10 minutes for `git clone`). Interactive operations (fzf) and `-R` use `context.Background()` (no timeout) because the user is at the keyboard or running an arbitrary child.
+Default timeouts: callers MUST construct a `context.Context` with a timeout for non-interactive ops (e.g., 5s for read-only ops, 10 minutes for `git clone`). Interactive operations (fzf, `wt open`) use `context.Background()` (no timeout) because the user is at the keyboard.
 
 ## Wrapper Boundaries
 
@@ -199,23 +203,23 @@ Per Constitution Principle IV ("Wrap, Don't Reinvent"):
 |---|---|
 | `git` | Inline `internal/proc.Run("git", "clone", ...)` calls in `cmd/hop/clone.go`. No dedicated `internal/git/` package — premature for two operations (`git clone` for registered names, `git clone` for ad-hoc URLs). |
 | `fzf` | `internal/fzf.Pick` — non-trivial invocation (multiple flags, stdin piping, query prefill), used by 5+ subcommands. Worth one file. |
-| `<cmd>` (for `-R`) | Inline `internal/proc.RunForeground(...)` in `cmd/hop/main.go::runDashR`. The shim's tool-form sugar (`hop <name> <tool>`) and canonical exec form (`hop <name> -R <cmd>`) both rewrite to `-R`, so they share this exec path. Cross-platform `open`/`xdg-open` is the user's responsibility via tool-form. |
-| `wt open` | Inline `internal/proc.RunForeground(ctx, "", "wt", "open", repo.Path)` in `cmd/hop/open.go::runOpen`. Single operation; the binary is a transparent passthrough — env-var orchestration (`WT_CD_FILE`, `WT_WRAPPER`) lives in the shim. |
+| `<tool>` (tool-form) | NOT exec'd by the binary. The shim's `--shim-plan` `RUN_IN_PARENT` plan runs the user's literal `<tool>` words in the parent shell after `cd`-ing to the resolved path, so PATH binaries, aliases, and functions all resolve. The binary only classifies + resolves the path (no exec — no shell-injection surface). |
+| `wt open` | Inline `internal/proc.RunForeground(ctx, "", "wt", "open", repo.Path)` in `cmd/hop/open.go::runOpen`. Single operation; the binary is a transparent passthrough — the `WT_CD_FILE` cd side-channel orchestration lives in the shim's `_hop_passthrough`. |
 | `wt list --json` | `cmd/hop/wt_list.go::defaultListWorktrees` wraps `internal/proc.RunCapture` with a 5-second per-call timeout and a `[]WtEntry` JSON unmarshal. The helper is exposed via a package-level `var listWorktrees` seam (mirroring `internal/fzf/fzf.go::runInteractive`) so tests can inject fakes. Two call sites (`resolveWorktreePath`, `runLsTrees`) — below the threshold for a dedicated `internal/wt/` package; same "promote later" rationale as `internal/git/`. |
 | YAML (read) | `gopkg.in/yaml.v3` directly in `internal/config/config.go`. Not re-wrapped — yaml.v3 already is the wrapper. |
 | YAML (write-back) | `internal/yamled.AppendURL` — wrapped because comment-preserving write requires node-level navigation, atomic temp+rename, and an `ErrGroupNotFound` sentinel. |
 
 ### Why `internal/git/` does NOT exist
 
-The entire git surface is `git clone <url> <dest>` (in single, `--all`, and ad-hoc URL paths). Wrapping one operation in a 5-line package is premature abstraction. If the surface grows (e.g., `git fetch`, `git pull`, `git status`), promote to a package then.
+The git surface is `git clone <url> <dest>` (clone paths) plus `git pull` / `git push` / `git pull --rebase` / `git status --porcelain` / `git add` / `git commit` (the reoriented `pull`/`push`/`sync` action tokens, via `pull.go`/`push.go`/`sync.go`). These are still inline `internal/proc.RunCapture` calls — each is a one-liner with no shared logic to factor out. If a richer git abstraction emerges, promote to a package then.
 
 ## Composability Primitives
 
 The grouped-schema rename introduced two primitives that other operations build on:
 
-- **`hop <name> where`** — path resolver. Stdin/stdout-friendly: `cd "$(hop outbox where)"` works as a shell composition. The repo-verb grammar puts the repo first, the verb second; the bare `hop <name>` (1 arg) is the shim-only shorthand for `hop <name> cd`, not for the path-printer.
-- **`hop <name> -R <cmd>...`** — exec-in-context. Repo-scoped: run a child command with cwd set to the resolved repo dir, without leaving the parent shell's cwd changed. Spelled `-R` (not `-C` like `git -C` / `make -C`) because hop is **repo-scoped**, not arbitrary-directory-scoped — the resolution path goes through `resolveByName` which only resolves repos in `hop.yaml`. Shim-only user-facing form; the shim rewrites to the binary's internal `command hop -R <name> <cmd>...` shape.
-- **`hop <name> <tool> [args...]`** — shim-only tool-form sugar. Rewrites to `command hop -R <name> <tool> [args...]`. Lives in `shell_init.go::posixInit`, NOT the binary. See [cli-surface.md](cli-surface.md#hop-name-tool-shim-sugar) for the resolution ladder.
+- **`hop <name> where`** — path resolver. Stdin/stdout-friendly: `cd "$(hop webapp where)"` works as a shell composition. The selection-first grammar puts the selection first, the action second; the bare `hop <name>` (1 arg) is the shim-only shorthand for `hop <name> cd`, not for the path-printer.
+- **`hop <name> <tool> [args...]`** — tool-form (exec-in-context). Native grammar: `--shim-plan` classifies it as `RUN_IN_PARENT\n<path>` and the shim cds to the resolved repo/worktree dir, then runs the user's literal words in the parent shell. Repo-scoped — resolution goes through `resolveByName` (only repos/worktrees in `hop.yaml`). Runs in the parent shell so aliases/functions resolve (the former `-R` binary-exec path could not); no shell-injection surface (no `eval`).
+- **`hop <selection> pull|push|sync`** — batch action tokens. `runBatchVerb` resolves the selection (repo/worktree/group/`--all`) and runs the per-repo git workflow with summary lines. See [cli-surface.md](cli-surface.md) for the grammar and the plural-selection guard.
 
 Future verbs (`sync`, `autosync`, `features`) build on these rather than each one re-implementing path resolution and exec.
 
@@ -264,5 +268,5 @@ Per Constitution Principle I ("Security First"):
 5. **`internal/proc/` is the security choke point.** Centralizing exec lets the security audit be a single grep, not a code review of every call site.
 6. **No `internal/git/` package yet.** Two operations (`git clone <name>` and `git clone <url>`) don't justify a package — both are inline `proc.Run("git", "clone", ...)`. Promote later if `fetch`/`pull`/`status` get added.
 7. **`internal/yamled` is separate from `internal/config`.** Validator and mutator have different responsibilities and different test surfaces. Keeping them separate is worth the extra package.
-8. **`-R` argv splitting in `main.go::extractDashR`, pre-cobra.** Cobra's parser would interpret the child's flags as `hop`'s flags. Pre-Execute argv inspection is a single small function, unit-tested in `dashr_test.go`. The alternative — `cobra.Command{DisableFlagParsing: true}` on a `-R` subcommand — would require `-R` to be a subcommand rather than a flag, breaking the flag-style ergonomics. Spelled `-R` (not `-C` like `git -C` / `make -C` / `tar -C`) because hop is repo-scoped (resolves names via `hop.yaml`), not directory-scoped.
+8. **`--shim-plan` classification in `shim_plan.go`, split pre-cobra in `main.go::extractShimPlan`.** The action token after the selection is an arbitrary child command line, which cobra would try to parse as hop's flags. Pre-Execute argv inspection (`extractShimPlan`) strips the flag and hands the user's argv to `runShimPlan`, which classifies it into the fixed 3-keyword protocol — unit-tested in `shim_plan_test.go`. This replaced the former `-R` flag + `extractDashR` argv split (gyo0); tool-form is now native grammar dispatched via the shim's `RUN_IN_PARENT` plan, and the shim hard-codes zero subcommand names (the binary owns classification), killing the stale-shim drift bug.
 9. **`rootForCompletion` is a package-level var.** `shell-init zsh` needs `rootCmd` to call `GenZshCompletion`, but threading `rootCmd` through every factory clutters the wiring. `main()` captures it once after `newRootCmd()`; `shell_init.go` reads it. Acceptable singleton for this binary's scale.

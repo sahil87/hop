@@ -288,7 +288,7 @@ func makeClonedRepoFixture(t *testing.T, name string) string {
 }
 
 func TestResolveByNameSplitsOnFirstSlashAndReplacesPath(t *testing.T) {
-	repoDir := makeClonedRepoFixture(t, "outbox")
+	repoDir := makeClonedRepoFixture(t, "webapp")
 	wantPath := repoDir + ".worktrees/feat-x"
 
 	withListWorktrees(t, func(ctx context.Context, repoPath string) ([]WtEntry, error) {
@@ -301,7 +301,7 @@ func TestResolveByNameSplitsOnFirstSlashAndReplacesPath(t *testing.T) {
 		}, nil
 	})
 
-	got, err := resolveByName("outbox/feat-x")
+	got, err := resolveByName("webapp/feat-x")
 	if err != nil {
 		t.Fatalf("resolveByName: %v", err)
 	}
@@ -309,8 +309,8 @@ func TestResolveByNameSplitsOnFirstSlashAndReplacesPath(t *testing.T) {
 		t.Errorf("got.Path = %q, want %q", got.Path, wantPath)
 	}
 	// Name/Group/URL preserved from the registry entry.
-	if got.Name != "outbox" {
-		t.Errorf("got.Name = %q, want outbox", got.Name)
+	if got.Name != "webapp" {
+		t.Errorf("got.Name = %q, want webapp", got.Name)
 	}
 	if got.Group != "default" {
 		t.Errorf("got.Group = %q, want default", got.Group)
@@ -321,7 +321,7 @@ func TestResolveByNameSplitsOnFirstSlashAndReplacesPath(t *testing.T) {
 }
 
 func TestResolveByNameWorktreeMainReturnsMainPath(t *testing.T) {
-	repoDir := makeClonedRepoFixture(t, "outbox")
+	repoDir := makeClonedRepoFixture(t, "webapp")
 	withListWorktrees(t, func(ctx context.Context, repoPath string) ([]WtEntry, error) {
 		return []WtEntry{
 			{Name: "main", Path: repoDir, IsMain: true},
@@ -329,9 +329,9 @@ func TestResolveByNameWorktreeMainReturnsMainPath(t *testing.T) {
 		}, nil
 	})
 
-	got, err := resolveByName("outbox/main")
+	got, err := resolveByName("webapp/main")
 	if err != nil {
-		t.Fatalf("resolveByName outbox/main: %v", err)
+		t.Fatalf("resolveByName webapp/main: %v", err)
 	}
 	if got.Path != repoDir {
 		t.Errorf("got.Path = %q, want main checkout %q", got.Path, repoDir)
@@ -339,16 +339,16 @@ func TestResolveByNameWorktreeMainReturnsMainPath(t *testing.T) {
 }
 
 func TestResolveByNameNoSlashSkipsWtInvocation(t *testing.T) {
-	repoDir := makeClonedRepoFixture(t, "outbox")
+	repoDir := makeClonedRepoFixture(t, "webapp")
 	called := false
 	withListWorktrees(t, func(ctx context.Context, repoPath string) ([]WtEntry, error) {
 		called = true
 		return nil, nil
 	})
 
-	got, err := resolveByName("outbox")
+	got, err := resolveByName("webapp")
 	if err != nil {
-		t.Fatalf("resolveByName outbox: %v", err)
+		t.Fatalf("resolveByName webapp: %v", err)
 	}
 	if called {
 		t.Errorf("listWorktrees called for /-less query; want NOT called")
@@ -359,7 +359,7 @@ func TestResolveByNameNoSlashSkipsWtInvocation(t *testing.T) {
 }
 
 func TestResolveByNameSplitsOnFirstSlashNotLast(t *testing.T) {
-	repoDir := makeClonedRepoFixture(t, "outbox")
+	repoDir := makeClonedRepoFixture(t, "webapp")
 	wantPath := repoDir + ".worktrees/feat-x-sub"
 
 	withListWorktrees(t, func(ctx context.Context, repoPath string) ([]WtEntry, error) {
@@ -368,7 +368,7 @@ func TestResolveByNameSplitsOnFirstSlashNotLast(t *testing.T) {
 		}, nil
 	})
 
-	got, err := resolveByName("outbox/feat-x/sub")
+	got, err := resolveByName("webapp/feat-x/sub")
 	if err != nil {
 		t.Fatalf("resolveByName: %v", err)
 	}
@@ -378,9 +378,9 @@ func TestResolveByNameSplitsOnFirstSlashNotLast(t *testing.T) {
 }
 
 func TestResolveByNameEmptyRHSIsUsageError(t *testing.T) {
-	makeClonedRepoFixture(t, "outbox")
+	makeClonedRepoFixture(t, "webapp")
 
-	_, err := resolveByName("outbox/")
+	_, err := resolveByName("webapp/")
 	var withCode *errExitCode
 	if !errors.As(err, &withCode) {
 		t.Fatalf("expected *errExitCode, got %T: %v", err, err)
@@ -394,7 +394,7 @@ func TestResolveByNameEmptyRHSIsUsageError(t *testing.T) {
 }
 
 func TestResolveByNameEmptyLHSIsUsageError(t *testing.T) {
-	makeClonedRepoFixture(t, "outbox")
+	makeClonedRepoFixture(t, "webapp")
 
 	_, err := resolveByName("/feat-x")
 	var withCode *errExitCode
@@ -410,12 +410,12 @@ func TestResolveByNameEmptyLHSIsUsageError(t *testing.T) {
 }
 
 func TestResolveByNameUnknownWorktreeSurfacesError(t *testing.T) {
-	repoDir := makeClonedRepoFixture(t, "outbox")
+	repoDir := makeClonedRepoFixture(t, "webapp")
 	withListWorktrees(t, func(ctx context.Context, repoPath string) ([]WtEntry, error) {
 		return []WtEntry{{Name: "main", Path: repoDir, IsMain: true}}, nil
 	})
 
-	_, err := resolveByName("outbox/nonexistent")
+	_, err := resolveByName("webapp/nonexistent")
 	var withCode *errExitCode
 	if !errors.As(err, &withCode) {
 		t.Fatalf("expected *errExitCode, got %T: %v", err, err)
@@ -424,7 +424,7 @@ func TestResolveByNameUnknownWorktreeSurfacesError(t *testing.T) {
 		t.Errorf("expected exit code 1, got %d", withCode.code)
 	}
 	wantSubstrs := []string{
-		"hop: worktree 'nonexistent' not found in 'outbox'",
+		"hop: worktree 'nonexistent' not found in 'webapp'",
 		"Try: wt list (in " + repoDir + ")",
 		"hop ls --trees",
 	}
@@ -436,13 +436,13 @@ func TestResolveByNameUnknownWorktreeSurfacesError(t *testing.T) {
 }
 
 func TestResolveByNameCaseSensitiveWorktreeMatch(t *testing.T) {
-	repoDir := makeClonedRepoFixture(t, "outbox")
+	repoDir := makeClonedRepoFixture(t, "webapp")
 	withListWorktrees(t, func(ctx context.Context, repoPath string) ([]WtEntry, error) {
 		// Worktree literally named "Feat-X" (uppercase F).
 		return []WtEntry{{Name: "Feat-X", Path: repoDir + ".worktrees/Feat-X"}}, nil
 	})
 
-	_, err := resolveByName("outbox/feat-x")
+	_, err := resolveByName("webapp/feat-x")
 	var withCode *errExitCode
 	if !errors.As(err, &withCode) {
 		t.Fatalf("expected *errExitCode (case-sensitive miss), got %T: %v", err, err)
@@ -453,12 +453,12 @@ func TestResolveByNameCaseSensitiveWorktreeMatch(t *testing.T) {
 }
 
 func TestResolveByNameWtMissingOnPATH(t *testing.T) {
-	makeClonedRepoFixture(t, "outbox")
+	makeClonedRepoFixture(t, "webapp")
 	withListWorktrees(t, func(ctx context.Context, repoPath string) ([]WtEntry, error) {
 		return nil, proc.ErrNotFound
 	})
 
-	_, err := resolveByName("outbox/feat-x")
+	_, err := resolveByName("webapp/feat-x")
 	var withCode *errExitCode
 	if !errors.As(err, &withCode) {
 		t.Fatalf("expected *errExitCode, got %T: %v", err, err)
@@ -472,7 +472,7 @@ func TestResolveByNameWtMissingOnPATH(t *testing.T) {
 }
 
 func TestResolveByNameMalformedJSONSurfaces(t *testing.T) {
-	makeClonedRepoFixture(t, "outbox")
+	makeClonedRepoFixture(t, "webapp")
 	// listWorktrees returns the raw json.Unmarshal error verbatim (the
 	// "wt list:" prefix is owned by this caller, not the seam) — see
 	// unmarshalWtEntries' contract in wt_list.go.
@@ -480,7 +480,7 @@ func TestResolveByNameMalformedJSONSurfaces(t *testing.T) {
 		return nil, fmt.Errorf("invalid character 'n' looking for beginning of value")
 	})
 
-	_, err := resolveByName("outbox/feat-x")
+	_, err := resolveByName("webapp/feat-x")
 	var withCode *errExitCode
 	if !errors.As(err, &withCode) {
 		t.Fatalf("expected *errExitCode, got %T: %v", err, err)

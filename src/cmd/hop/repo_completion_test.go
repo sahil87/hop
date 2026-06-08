@@ -278,106 +278,18 @@ func TestCompletionRootSurfacesRepoNamedCode(t *testing.T) {
 // `completeRepoOrGroupNames` helper used by `hop pull` and `hop sync`. The
 // helper returns both group names and repo names, deduplicated. We invoke the
 // hidden __complete entry for `pull` and assert both kinds appear.
-func TestCompletionPullSurfacesReposAndGroups(t *testing.T) {
-	writeReposFixture(t, `repos:
-  default:
-    dir: /tmp/test-pull-completion-default
-    urls:
-      - git@github.com:sahil87/alpha.git
-      - git@github.com:sahil87/beta.git
-  vendor:
-    dir: /tmp/test-pull-completion-vendor
-    urls:
-      - git@github.com:vendor/gamma.git
-`)
+// NOTE: the former pull/sync subcommand-completion tests
+// (TestCompletionPullSurfacesReposAndGroups, ...Deduplicates...,
+// ...Suppresses..., TestCompletionSyncSurfacesReposAndGroups) were removed:
+// pull/push/sync are no longer cobra subcommands (intake §5), so `hop pull
+// <TAB>` no longer completes as a subcommand. The reoriented batch verbs now
+// complete at the $2 action position (see TestCompletionVerbPositionListsVerbs).
 
-	stdout, _, err := runArgs(t, cobra.ShellCompRequestCmd, "pull", "")
-	if err != nil {
-		t.Fatalf("__complete pull: %v", err)
-	}
-	out := stdout.String()
-	for _, want := range []string{"default", "vendor", "alpha", "beta", "gamma"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("expected %q in pull completion, got:\n%s", want, out)
-		}
-	}
-}
-
-// TestCompletionPullDeduplicatesGroupAndRepoCollisions asserts that when a
-// name appears as BOTH a group and a repo (the rare collision case), it is
-// emitted once. Group entries are listed first, so the repo with the same
-// name is suppressed by the dedup pass.
-func TestCompletionPullDeduplicatesGroupAndRepoCollisions(t *testing.T) {
-	// "outbox" is both a group AND a repo name (in another group).
-	writeReposFixture(t, `repos:
-  outbox:
-    dir: /tmp/test-pull-collision-outbox
-    urls:
-      - git@github.com:org/foo.git
-  vendor:
-    dir: /tmp/test-pull-collision-vendor
-    urls:
-      - git@github.com:vendor/outbox.git
-`)
-
-	stdout, _, err := runArgs(t, cobra.ShellCompRequestCmd, "pull", "")
-	if err != nil {
-		t.Fatalf("__complete pull: %v", err)
-	}
-	cands := candidatesFrom(stdout.String())
-	count := 0
-	for _, c := range cands {
-		if c == "outbox" {
-			count++
-		}
-	}
-	if count != 1 {
-		t.Fatalf("expected `outbox` once (dedup), got %d times in candidates: %v", count, cands)
-	}
-}
-
-// TestCompletionPullSuppressesAfterPositional asserts that once the user has
-// already typed one positional argument, the completion returns no further
-// candidates (cobra's MaximumNArgs(1) means a second positional is invalid).
-func TestCompletionPullSuppressesAfterPositional(t *testing.T) {
-	writeReposFixture(t, completionYAML)
-
-	stdout, _, err := runArgs(t, cobra.ShellCompRequestCmd, "pull", "alpha", "")
-	if err != nil {
-		t.Fatalf("__complete pull alpha: %v", err)
-	}
-	if got := candidatesFrom(stdout.String()); len(got) > 0 {
-		t.Fatalf("expected no candidates after first positional, got: %v", got)
-	}
-}
-
-// TestCompletionSyncSurfacesReposAndGroups mirrors the pull-completion test
-// for sync — same helper, same expectation.
-func TestCompletionSyncSurfacesReposAndGroups(t *testing.T) {
-	writeReposFixture(t, `repos:
-  default:
-    dir: /tmp/test-sync-completion
-    urls:
-      - git@github.com:sahil87/alpha.git
-`)
-
-	stdout, _, err := runArgs(t, cobra.ShellCompRequestCmd, "sync", "")
-	if err != nil {
-		t.Fatalf("__complete sync: %v", err)
-	}
-	out := stdout.String()
-	if !strings.Contains(out, "default") {
-		t.Errorf("expected `default` in sync completion, got:\n%s", out)
-	}
-	if !strings.Contains(out, "alpha") {
-		t.Errorf("expected `alpha` in sync completion, got:\n%s", out)
-	}
-}
-
-// TestCompletionVerbPositionListsCdWhereOpen exercises completion at the $2
-// verb position: `hop <name> <TAB>` should surface `cd`, `where`, and `open`.
-// These are the recognized verbs at args[1] in the root command's RunE.
-func TestCompletionVerbPositionListsCdWhereOpen(t *testing.T) {
+// TestCompletionVerbPositionListsVerbs exercises completion at the $2 verb
+// position: `hop <name> <TAB>` should surface the builtin verbs (cd, where,
+// open) AND the reoriented batch verbs (pull, push, sync) — all valid action
+// tokens after a selection in the root command's RunE.
+func TestCompletionVerbPositionListsVerbs(t *testing.T) {
 	writeReposFixture(t, completionYAML)
 
 	stdout, _, err := runArgs(t, cobra.ShellCompRequestCmd, "alpha", "")
@@ -385,7 +297,7 @@ func TestCompletionVerbPositionListsCdWhereOpen(t *testing.T) {
 		t.Fatalf("__complete alpha: %v", err)
 	}
 	cands := candidatesFrom(stdout.String())
-	wantSet := map[string]bool{"cd": false, "where": false, "open": false}
+	wantSet := map[string]bool{"cd": false, "where": false, "open": false, "pull": false, "push": false, "sync": false}
 	for _, c := range cands {
 		if _, ok := wantSet[c]; ok {
 			wantSet[c] = true
@@ -401,7 +313,7 @@ func TestCompletionVerbPositionListsCdWhereOpen(t *testing.T) {
 // TestCompletionVerbPositionDoesNotListRepoNames asserts that at the $2 position
 // the completion returns ONLY the verb set, not repo names. Without this guard,
 // a regression that returned repos at $2 would advertise nonsensical
-// `hop outbox dotfiles` style commands.
+// `hop webapp dotfiles` style commands.
 func TestCompletionVerbPositionDoesNotListRepoNames(t *testing.T) {
 	writeReposFixture(t, completionYAML)
 
@@ -454,11 +366,11 @@ func makeCompletionFixture(t *testing.T, name string, cloned bool) string {
 }
 
 // TestCompletionWorktreeSlashOffersCandidates exercises the new worktree
-// prefix branch. With `toComplete = "outbox/"`, completion must surface each
-// worktree name prefixed with `outbox/` so cobra's prefix-match-on-toComplete
+// prefix branch. With `toComplete = "webapp/"`, completion must surface each
+// worktree name prefixed with `webapp/` so cobra's prefix-match-on-toComplete
 // substitutes correctly.
 func TestCompletionWorktreeSlashOffersCandidates(t *testing.T) {
-	repoDir := makeCompletionFixture(t, "outbox", true)
+	repoDir := makeCompletionFixture(t, "webapp", true)
 	withListWorktrees(t, func(ctx context.Context, repoPath string) ([]WtEntry, error) {
 		if repoPath != repoDir {
 			t.Errorf("listWorktrees called with %q, want %q", repoPath, repoDir)
@@ -470,12 +382,12 @@ func TestCompletionWorktreeSlashOffersCandidates(t *testing.T) {
 		}, nil
 	})
 
-	stdout, _, err := runArgs(t, cobra.ShellCompRequestCmd, "outbox/")
+	stdout, _, err := runArgs(t, cobra.ShellCompRequestCmd, "webapp/")
 	if err != nil {
-		t.Fatalf("__complete outbox/: %v", err)
+		t.Fatalf("__complete webapp/: %v", err)
 	}
 	cands := candidatesFrom(stdout.String())
-	want := []string{"outbox/main", "outbox/feat-x", "outbox/hotfix"}
+	want := []string{"webapp/main", "webapp/feat-x", "webapp/hotfix"}
 	for _, w := range want {
 		found := false
 		for _, c := range cands {
@@ -491,10 +403,10 @@ func TestCompletionWorktreeSlashOffersCandidates(t *testing.T) {
 }
 
 // TestCompletionWorktreePartialAfterSlash verifies the prefix branch fires
-// for `outbox/feat` (partial wt name), returning the full set prefixed —
+// for `webapp/feat` (partial wt name), returning the full set prefixed —
 // cobra's prefix-match narrows the visible list.
 func TestCompletionWorktreePartialAfterSlash(t *testing.T) {
-	repoDir := makeCompletionFixture(t, "outbox", true)
+	repoDir := makeCompletionFixture(t, "webapp", true)
 	withListWorktrees(t, func(ctx context.Context, repoPath string) ([]WtEntry, error) {
 		return []WtEntry{
 			{Name: "main", Path: repoDir},
@@ -503,12 +415,12 @@ func TestCompletionWorktreePartialAfterSlash(t *testing.T) {
 		}, nil
 	})
 
-	stdout, _, err := runArgs(t, cobra.ShellCompRequestCmd, "outbox/feat")
+	stdout, _, err := runArgs(t, cobra.ShellCompRequestCmd, "webapp/feat")
 	if err != nil {
-		t.Fatalf("__complete outbox/feat: %v", err)
+		t.Fatalf("__complete webapp/feat: %v", err)
 	}
 	cands := candidatesFrom(stdout.String())
-	for _, want := range []string{"outbox/feat-x", "outbox/feat-y"} {
+	for _, want := range []string{"webapp/feat-x", "webapp/feat-y"} {
 		found := false
 		for _, c := range cands {
 			if c == want {
@@ -550,14 +462,14 @@ func TestCompletionWorktreeUnclonedSilent(t *testing.T) {
 // `/`-prefix completion returns no candidates silently — no `not found`
 // stderr line during TAB.
 func TestCompletionWorktreeMissingWtSilent(t *testing.T) {
-	makeCompletionFixture(t, "outbox", true)
+	makeCompletionFixture(t, "webapp", true)
 	withListWorktrees(t, func(ctx context.Context, repoPath string) ([]WtEntry, error) {
 		return nil, proc.ErrNotFound
 	})
 
-	stdout, stderr, err := runArgs(t, cobra.ShellCompRequestCmd, "outbox/")
+	stdout, stderr, err := runArgs(t, cobra.ShellCompRequestCmd, "webapp/")
 	if err != nil {
-		t.Fatalf("__complete outbox/: %v", err)
+		t.Fatalf("__complete webapp/: %v", err)
 	}
 	if got := candidatesFrom(stdout.String()); len(got) > 0 {
 		t.Errorf("expected no candidates when wt missing, got %v", got)
@@ -572,15 +484,15 @@ func TestCompletionWorktreeMissingWtSilent(t *testing.T) {
 // by the worktree-prefix branch — the `/`-detection only operates on args[0]
 // / the toComplete slot.
 func TestCompletionVerbPositionUnaffectedByWorktreeBranch(t *testing.T) {
-	makeCompletionFixture(t, "outbox", true)
+	makeCompletionFixture(t, "webapp", true)
 	withListWorktrees(t, func(ctx context.Context, repoPath string) ([]WtEntry, error) {
 		t.Fatalf("listWorktrees called at $2 verb position; want NOT called")
 		return nil, nil
 	})
 
-	stdout, _, err := runArgs(t, cobra.ShellCompRequestCmd, "outbox", "")
+	stdout, _, err := runArgs(t, cobra.ShellCompRequestCmd, "webapp", "")
 	if err != nil {
-		t.Fatalf("__complete outbox <empty>: %v", err)
+		t.Fatalf("__complete webapp <empty>: %v", err)
 	}
 	cands := candidatesFrom(stdout.String())
 	wantVerbs := map[string]bool{"cd": false, "where": false, "open": false}
@@ -647,42 +559,42 @@ func TestCompletionEagerWorktreeExpansion(t *testing.T) {
 	}{
 		{
 			name:           "a unique match with 1 worktree falls back",
-			toComplete:     "outb",
-			repos:          []string{"outbox"},
-			clonedRepos:    []string{"outbox"},
+			toComplete:     "webap",
+			repos:          []string{"webapp"},
+			clonedRepos:    []string{"webapp"},
 			wtEntries:      []WtEntry{{Name: "main", IsMain: true}},
-			wantCandidates: []string{"outbox"},
+			wantCandidates: []string{"webapp"},
 			wantDirective:  cobra.ShellCompDirectiveNoFileComp,
 		},
 		{
 			name:        "b unique match with multiple worktrees fires eager expansion",
-			toComplete:  "outb",
-			repos:       []string{"outbox"},
-			clonedRepos: []string{"outbox"},
+			toComplete:  "webap",
+			repos:       []string{"webapp"},
+			clonedRepos: []string{"webapp"},
 			wtEntries: []WtEntry{
 				{Name: "main", IsMain: true},
 				{Name: "feat-x"},
 				{Name: "bugfix-y"},
 			},
-			wantCandidates: []string{"outbox", "outbox/main", "outbox/feat-x", "outbox/bugfix-y"},
+			wantCandidates: []string{"webapp", "webapp/main", "webapp/feat-x", "webapp/bugfix-y"},
 			wantDirective:  cobra.ShellCompDirectiveNoFileComp | cobra.ShellCompDirectiveNoSpace,
 		},
 		{
 			name:           "c unique match uncloned falls back silently",
-			toComplete:     "outb",
-			repos:          []string{"outbox"},
+			toComplete:     "webap",
+			repos:          []string{"webapp"},
 			clonedRepos:    nil, // uncloned
 			wtNotCalled:    true,
-			wantCandidates: []string{"outbox"},
+			wantCandidates: []string{"webapp"},
 			wantDirective:  cobra.ShellCompDirectiveNoFileComp,
 		},
 		{
 			name:           "d unique match with listWorktrees error falls back silently",
-			toComplete:     "outb",
-			repos:          []string{"outbox"},
-			clonedRepos:    []string{"outbox"},
+			toComplete:     "webap",
+			repos:          []string{"webapp"},
+			clonedRepos:    []string{"webapp"},
 			wtErr:          errors.New("wt list: malformed JSON"),
-			wantCandidates: []string{"outbox"},
+			wantCandidates: []string{"webapp"},
 			wantDirective:  cobra.ShellCompDirectiveNoFileComp,
 		},
 		{
@@ -743,33 +655,33 @@ func TestCompletionEagerWorktreeExpansion(t *testing.T) {
 // that delegate to completeRepoNames (e.g. `clone` via completeCloneArg)
 // accept only a repo name or URL — surfacing `<repo>/<wt>` candidates there
 // would be misleading. With a unique cloned repo that has >=2 worktrees,
-// `__complete clone outb` must return the bare repo name with the default
+// `__complete clone webap` must return the bare repo name with the default
 // directive (no NoSpace, no worktree-suffixed candidates) and must NOT invoke
 // `wt list --json`.
 func TestCompletionEagerWorktreeRootOnly(t *testing.T) {
-	makeCompletionFixture(t, "outbox", true)
+	makeCompletionFixture(t, "webapp", true)
 	withListWorktrees(t, func(ctx context.Context, repoPath string) ([]WtEntry, error) {
 		t.Fatalf("listWorktrees called from non-root completion with %q; want NOT called", repoPath)
 		return nil, nil
 	})
 
-	stdout, stderr, err := runArgs(t, cobra.ShellCompRequestCmd, "clone", "outb")
+	stdout, stderr, err := runArgs(t, cobra.ShellCompRequestCmd, "clone", "webap")
 	if err != nil {
-		t.Fatalf("__complete clone outb: %v", err)
+		t.Fatalf("__complete clone webap: %v", err)
 	}
 	cands := candidatesFrom(stdout.String())
-	// Bare repo name must be present; no `outbox/<wt>` candidates may appear.
+	// Bare repo name must be present; no `webapp/<wt>` candidates may appear.
 	hasBare := false
 	for _, c := range cands {
-		if c == "outbox" {
+		if c == "webapp" {
 			hasBare = true
 		}
-		if strings.HasPrefix(c, "outbox/") {
+		if strings.HasPrefix(c, "webapp/") {
 			t.Errorf("unexpected worktree-suffixed candidate %q in clone completion: %v", c, cands)
 		}
 	}
 	if !hasBare {
-		t.Errorf("expected bare repo name 'outbox' in candidates, got %v", cands)
+		t.Errorf("expected bare repo name 'webapp' in candidates, got %v", cands)
 	}
 	if strings.Contains(stderr.String(), "hop:") {
 		t.Errorf("expected no hop-level stderr output, got %q", stderr.String())
@@ -784,14 +696,14 @@ func TestCompletionEagerWorktreeRootOnly(t *testing.T) {
 // integration-level test closes that gap so a future regression that writes
 // to stderr during TAB would fail here.
 func TestCompletionEagerWorktreeListErrorSilent(t *testing.T) {
-	makeCompletionFixture(t, "outbox", true)
+	makeCompletionFixture(t, "webapp", true)
 	withListWorktrees(t, func(ctx context.Context, repoPath string) ([]WtEntry, error) {
 		return nil, errors.New("wt list: malformed JSON")
 	})
 
-	stdout, stderr, err := runArgs(t, cobra.ShellCompRequestCmd, "outb")
+	stdout, stderr, err := runArgs(t, cobra.ShellCompRequestCmd, "webap")
 	if err != nil {
-		t.Fatalf("__complete outb: %v", err)
+		t.Fatalf("__complete webap: %v", err)
 	}
 	cands := candidatesFrom(stdout.String())
 	if len(cands) == 0 {
