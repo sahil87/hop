@@ -234,12 +234,12 @@ func writeFakeGitShim(t *testing.T, urlByDir map[string]string) string {
 	return binDir
 }
 
-// TestIntegrationConfigScanPrintMode builds the binary, synthesizes a tree
+// TestIntegrationRecursiveAddPrintMode builds the binary, synthesizes a tree
 // containing convention-match and non-convention repos plus a worktree and a
-// bare repo, and asserts both stdout YAML shape and stderr summary lines.
-// `git` is shadowed by the fake shim in writeFakeGitShim so the test is
-// deterministic across machines.
-func TestIntegrationConfigScanPrintMode(t *testing.T) {
+// bare repo, and asserts both stdout YAML shape and stderr summary lines for
+// `hop add -r -p`. `git` is shadowed by the fake shim in writeFakeGitShim so
+// the test is deterministic across machines.
+func TestIntegrationRecursiveAddPrintMode(t *testing.T) {
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skip("bash required for fake git shim")
 	}
@@ -296,7 +296,7 @@ func TestIntegrationConfigScanPrintMode(t *testing.T) {
 	// header is stamped during the subprocess, so if the UTC day rolls between
 	// capture and assertion the test would flake.
 	dateBefore := time.Now().UTC().Format("2006-01-02")
-	cmd := exec.Command(bin, "config", "scan", scanRoot)
+	cmd := exec.Command(bin, "add", "-r", "-p", scanRoot)
 	cmd.Env = append(os.Environ(),
 		"HOME="+home,
 		"PATH="+binDir+":"+os.Getenv("PATH"),
@@ -305,7 +305,7 @@ func TestIntegrationConfigScanPrintMode(t *testing.T) {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		t.Fatalf("config scan: %v\nstderr: %s", err, stderr.String())
+		t.Fatalf("add -r -p: %v\nstderr: %s", err, stderr.String())
 	}
 	dateAfter := time.Now().UTC().Format("2006-01-02")
 
@@ -338,7 +338,7 @@ func TestIntegrationConfigScanPrintMode(t *testing.T) {
 	}
 }
 
-func TestIntegrationConfigScanWriteMode(t *testing.T) {
+func TestIntegrationRecursiveAddWriteMode(t *testing.T) {
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skip("bash required for fake git shim")
 	}
@@ -364,7 +364,7 @@ func TestIntegrationConfigScanWriteMode(t *testing.T) {
 		canonConv: "git@github.com:sahil87/hop.git",
 	})
 
-	cmd := exec.Command(bin, "config", "scan", scanRoot, "--write")
+	cmd := exec.Command(bin, "add", "-r", scanRoot)
 	cmd.Env = append(os.Environ(),
 		"HOME="+home,
 		"PATH="+binDir+":"+os.Getenv("PATH"),
@@ -373,7 +373,7 @@ func TestIntegrationConfigScanWriteMode(t *testing.T) {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		t.Fatalf("config scan --write: %v\nstderr: %s", err, stderr.String())
+		t.Fatalf("add -r: %v\nstderr: %s", err, stderr.String())
 	}
 
 	if stdout.Len() != 0 {
@@ -505,7 +505,7 @@ func TestIntegrationTopLevelAddRm(t *testing.T) {
 			}
 		}
 		// The top-level subcommand listing should advertise add/rm Shorts.
-		if !strings.Contains(stdout, "register a single on-disk repo into hop.yaml") {
+		if !strings.Contains(stdout, "register on-disk repos into hop.yaml") {
 			t.Errorf("expected top-level `add` Short in hop --help; got:\n%s", stdout)
 		}
 	})
@@ -523,9 +523,14 @@ func TestIntegrationTopLevelAddRm(t *testing.T) {
 		if strings.Contains(stdout, "remove a registered repo from hop.yaml via an interactive picker") {
 			t.Errorf("hidden `config rm` leaked into config --help; got:\n%s", stdout)
 		}
-		// Sanity: a still-visible config subcommand IS present.
-		if !strings.Contains(stdout, "scan a directory for git repos and populate hop.yaml") {
-			t.Errorf("expected visible `config scan` Short; got:\n%s", stdout)
+		// Sanity: a still-visible config subcommand IS present (scan is deleted,
+		// so assert against a surviving one — `print`).
+		if !strings.Contains(stdout, "print the resolved hop.yaml contents to stdout") {
+			t.Errorf("expected visible `config print` Short; got:\n%s", stdout)
+		}
+		// The deleted `config scan` Short must be gone.
+		if strings.Contains(stdout, "scan a directory for git repos") {
+			t.Errorf("deleted `config scan` Short still present; got:\n%s", stdout)
 		}
 	})
 }

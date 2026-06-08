@@ -303,8 +303,8 @@ const skeletonContent = "repos: {}\n"
 // skeleton with mode 0644 (same mode rationale as the starter: repo paths +
 // public URLs, no credentials). A stat error other than not-exist is returned.
 //
-// Used by the write-commands (hop add, hop config scan --write, hop clone <url>)
-// to auto-bootstrap the config instead of erroring on a fresh machine.
+// Used by the write-commands (hop add, hop add -r, hop clone <url>) to
+// auto-bootstrap the config instead of erroring on a fresh machine.
 func EnsureSkeleton(path string) (created bool, err error) {
 	if _, err := os.Stat(path); err == nil {
 		return false, nil

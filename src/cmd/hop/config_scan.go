@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,9 +9,6 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"time"
-
-	"github.com/spf13/cobra"
 
 	"github.com/sahil87/hop/internal/config"
 	"github.com/sahil87/hop/internal/proc"
@@ -20,13 +16,6 @@ import (
 	"github.com/sahil87/hop/internal/scan"
 	"github.com/sahil87/hop/internal/yamled"
 )
-
-// scanCmdName is the CLI prefix used in stderr messages (matches the spec's
-// "hop config scan: ..." wording).
-const scanCmdName = "hop config scan"
-
-// minScanDepth is the smallest valid value for --depth (per spec assumption #24).
-const minScanDepth = 1
 
 // inventedSuffixStart is the smallest integer suffix used when slug collides
 // with an existing group whose dir does not match (per spec § "Conflict
@@ -37,102 +26,6 @@ const inventedSuffixStart = 2
 // slugify output MUST conform.
 var scanGroupNameRe = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
 
-// runConfigScan is the top-level RunE wired by newConfigScanCmd. It validates
-// args, resolves hop.yaml, runs the walk, builds the merge plan, and dispatches
-// to print or write mode. Returns errSilent on user-visible failures (cobra
-// translates to exit 1 / 2 via translateExit + errExitCode).
-func runConfigScan(cmd *cobra.Command, userArg string, depth int, write bool) error {
-	stderr := cmd.ErrOrStderr()
-
-	// 1. Validate --depth (spec assumption #24).
-	if depth < minScanDepth {
-		fmt.Fprintf(stderr, "%s: --depth must be >= %d.\n", scanCmdName, minScanDepth)
-		return &errExitCode{code: 2}
-	}
-
-	// 2. Validate <dir>: filepath.Abs → EvalSymlinks → os.Stat (directory).
-	canonicalDir, ok := validateConfigDir(userArg, scanCmdName, stderr)
-	if !ok {
-		return &errExitCode{code: 2}
-	}
-
-	// 3. Resolve hop.yaml. Only --write touches the file, so only --write
-	//    auto-inits a missing config (print mode never creates — there is
-	//    nothing to bootstrap). Print mode keeps erroring on a missing config.
-	var configPath string
-	if write {
-		var err error
-		configPath, err = config.ResolveWriteTarget()
-		if err != nil {
-			// Only fires when $HOME is unset — an environment failure.
-			fmt.Fprintf(stderr, "%s: %v\n", scanCmdName, err)
-			return errSilent
-		}
-		created, err := config.EnsureSkeleton(configPath)
-		if err != nil {
-			fmt.Fprintf(stderr, "%s: %v\n", scanCmdName, err)
-			return errSilent
-		}
-		if created {
-			fmt.Fprintf(stderr, "created: %s\n", configPath)
-		}
-	} else {
-		var err error
-		configPath, err = config.Resolve()
-		if err != nil {
-			fmt.Fprintf(stderr, "%s: %v\n", scanCmdName, err)
-			return errSilent
-		}
-	}
-
-	// 4. Load existing config (used for the convention check + dedup).
-	cfg, err := config.Load(configPath)
-	if err != nil {
-		fmt.Fprintf(stderr, "%s: %v\n", scanCmdName, err)
-		return errSilent
-	}
-
-	// 5. Walk.
-	found, skips, err := scan.Walk(context.Background(), canonicalDir, scan.Options{
-		Depth:     depth,
-		GitRunner: gitRunner,
-	})
-	if err != nil {
-		// Lazy git-missing check: only surfaces when Walk had to invoke git.
-		if errors.Is(err, proc.ErrNotFound) {
-			fmt.Fprintln(stderr, gitMissingHint)
-			return errSilent
-		}
-		fmt.Fprintf(stderr, "%s: %v\n", scanCmdName, err)
-		return errSilent
-	}
-
-	// 6. Build the merge plan. Slugify failures emit `skip:` lines and are
-	//    counted as a generic skip; they do NOT block other repos.
-	plan, planSummary := buildScanPlan(cfg, found, stderr)
-
-	// 7. Render or write.
-	if write {
-		if err := yamled.MergeScan(configPath, plan); err != nil {
-			fmt.Fprintf(stderr, "%s: write %s: %v\n", scanCmdName, configPath, err)
-			return errSilent
-		}
-	} else {
-		bytes, err := yamled.RenderScan(configPath, plan)
-		if err != nil {
-			fmt.Fprintf(stderr, "%s: render: %v\n", scanCmdName, err)
-			return errSilent
-		}
-		header := scanHeaderComment(userArg, configPath)
-		fmt.Fprint(cmd.OutOrStdout(), header)
-		_, _ = cmd.OutOrStdout().Write(bytes)
-	}
-
-	// 8. Stderr summary block (last, after stdout in print mode).
-	emitScanSummary(stderr, userArg, depth, found, skips, planSummary, configPath, write)
-	return nil
-}
-
 // gitRunner is the production scan.GitRunner, bound to proc.RunCapture.
 // Defined as a package var so tests can override if needed; production code
 // uses the default. Spec § "Git invocation contract" Constitution I.
@@ -140,8 +33,8 @@ var gitRunner scan.GitRunner = func(ctx context.Context, dir string, args ...str
 	return proc.RunCapture(ctx, dir, "git", args...)
 }
 
-// validateConfigDir applies the directory-argument validation order shared by
-// `config scan` and `config add` (spec § "Argument validation"):
+// validateConfigDir applies the directory-argument validation order used by
+// `hop add` (single-dir and recursive) (spec § "Argument validation"):
 // filepath.Abs → filepath.EvalSymlinks → os.Stat (must be directory). On any
 // failure, emits the not-a-directory message (with userArg verbatim, prefixed
 // by the caller's cmdName) and returns ok=false so the caller can exit 2.
@@ -170,14 +63,6 @@ func validateConfigDir(userArg, cmdName string, stderr io.Writer) (canonical str
 	return resolved, true
 }
 
-// scanHeaderComment returns the two-line print-mode header per spec § "Print
-// mode header" / assumption #23. Date is UTC (spec assumption #30).
-func scanHeaderComment(userArg, configPath string) string {
-	date := time.Now().UTC().Format("2006-01-02")
-	return fmt.Sprintf("# hop config — generated by 'hop config scan %s' on %s (UTC).\n# Run with --write to merge into %s.\n",
-		userArg, date, configPath)
-}
-
 // scanPlanSummary aggregates the counters needed for the stderr summary block
 // per spec § "Stderr summary".
 type scanPlanSummary struct {
@@ -186,6 +71,7 @@ type scanPlanSummary struct {
 	defaultExisting       int      // subset of defaultMatched already registered
 	inventedGroups        []string // names of invented groups (in caller order)
 	inventedURLCount      int      // total URLs assigned to invented groups
+	forcedGroup           string   // user-named -g group (empty unless -g was used)
 	skipNoGroupName       int      // CLI-layer slugify-empty skips
 	skipAlreadyRegistered int      // CLI-layer dedup skips for non-convention URLs already in hop.yaml
 }
@@ -450,53 +336,6 @@ func homeSubstitute(p string) string {
 		return "~" + p[len(home):]
 	}
 	return p
-}
-
-// emitScanSummary writes the stderr summary block per spec § "Stderr
-// summary". One header line + indented breakdown + trailing tip/wrote.
-func emitScanSummary(stderr io.Writer, userArg string, depth int, found []scan.Found, skips []scan.Skip, summary scanPlanSummary, configPath string, write bool) {
-	totalFound := len(found)
-	if totalFound == 0 {
-		fmt.Fprintf(stderr, "%s: scanned %s (depth %d), found 0 repos. Nothing to add.\n",
-			scanCmdName, userArg, depth)
-		if write {
-			fmt.Fprintf(stderr, "wrote: %s\n", configPath)
-		} else {
-			fmt.Fprintf(stderr, "Run with --write to merge into %s.\n", configPath)
-		}
-		return
-	}
-
-	fmt.Fprintf(stderr, "%s: scanned %s (depth %d), found %d %s.\n",
-		scanCmdName, userArg, depth, totalFound, pluralize(totalFound, "repo", "repos"))
-
-	// Convention-default line.
-	if summary.defaultMatched > 0 {
-		if write {
-			fmt.Fprintf(stderr, "  matched convention (default): %d (%d new, %d already registered)\n",
-				summary.defaultMatched, summary.defaultNew, summary.defaultExisting)
-		} else {
-			fmt.Fprintf(stderr, "  matched convention (default): %d\n", summary.defaultMatched)
-		}
-	}
-
-	// Invented-groups line.
-	if len(summary.inventedGroups) > 0 {
-		fmt.Fprintf(stderr, "  invented groups: %d (%s)\n",
-			len(summary.inventedGroups), strings.Join(summary.inventedGroups, ", "))
-	}
-
-	// Skipped line.
-	skipParts := buildSkipParts(skips, summary.skipNoGroupName, summary.skipAlreadyRegistered)
-	if len(skipParts) > 0 {
-		fmt.Fprintf(stderr, "  skipped: %s\n", strings.Join(skipParts, ", "))
-	}
-
-	if write {
-		fmt.Fprintf(stderr, "wrote: %s\n", configPath)
-	} else {
-		fmt.Fprintf(stderr, "Run with --write to merge into %s.\n", configPath)
-	}
 }
 
 // buildSkipParts groups Walk's Skip slice by reason and adds the CLI-layer

@@ -383,9 +383,17 @@ type ScanPlan struct {
 // InventedGroup is one new group invented by the CLI layer for non-convention
 // repos. Name must already conform to ^[a-z][a-z0-9_-]*$ (the caller slugifies
 // before constructing this); Dir must already have HOME-substitution applied.
+//
+// Flat selects the rendered shape when the group does not already exist:
+// the default (false) renders a map-shaped group `{ dir: <Dir>, urls: [...] }`;
+// Flat=true renders a flat-list group `<Name>: [...]` with no `dir` key (Dir is
+// ignored). Flat is used for user-named forced groups (`hop add -g <name>`),
+// which have no dir override and MUST render byte-identically whether written
+// (MergeScan) or previewed (RenderScan).
 type InventedGroup struct {
 	Name string
 	Dir  string
+	Flat bool
 	URLs []string
 }
 
@@ -503,7 +511,17 @@ func mergeScanIntoTree(root *yaml.Node, plan ScanPlan) error {
 		// CLI matched on dir).
 		groupNode := mappingValue(reposNode, ig.Name)
 		if groupNode == nil {
-			groupNode = makeMapShapedGroup(ig.Dir)
+			if ig.Flat {
+				// Forced groups (`hop add -g`) have no dir override; render as a
+				// flat list `<name>: [...]`. FlowStyle matches write mode exactly:
+				// there EnsureGroup first seeds an empty `<name>: []` (which
+				// reparses as a flow sequence) and MergeScan appends into it,
+				// yielding `<name>: ['url', ...]`. Matching the style here keeps
+				// the print dry-run byte-identical to the write (R2).
+				groupNode = &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq", Style: yaml.FlowStyle}
+			} else {
+				groupNode = makeMapShapedGroup(ig.Dir)
+			}
 			reposNode.Content = append(reposNode.Content,
 				&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: ig.Name},
 				groupNode,

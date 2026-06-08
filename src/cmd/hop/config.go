@@ -12,9 +12,23 @@ import (
 func newConfigCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "config",
-		Short: "config helpers (init, where, scan, print)",
+		Short: "config helpers (init, where, print)",
+		// A bare `hop config` prints help (args empty → RunE shows usage). An
+		// unknown subcommand (e.g. the deleted `config scan`) reaches this RunE
+		// with args non-empty and surfaces an `unknown command` error rather than
+		// silently printing help — cobra only routes a leftover positional to the
+		// parent's RunE when the parent has no matching subcommand, so valid
+		// subcommands (init/where/print and the hidden add/rm aliases) still
+		// dispatch to their own RunE before this fires.
+		Args: cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return cmd.Help()
+			}
+			return fmt.Errorf("unknown command %q for %q", args[0], cmd.CommandPath())
+		},
 	}
-	cmd.AddCommand(newConfigInitCmd(), newConfigWhereCmd(), newConfigScanCmd(), newConfigAddCmd(), newConfigRmCmd(), newConfigPrintCmd())
+	cmd.AddCommand(newConfigInitCmd(), newConfigWhereCmd(), newConfigAddCmd(), newConfigRmCmd(), newConfigPrintCmd())
 	return cmd
 }
 
@@ -32,7 +46,7 @@ func newConfigInitCmd() *cobra.Command {
 				return err
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "Created %s\n", target)
-			fmt.Fprintln(cmd.ErrOrStderr(), "Edit the file to add your repos, or run `hop config scan <dir>` to populate from existing on-disk repos.")
+			fmt.Fprintln(cmd.ErrOrStderr(), "Edit the file to add your repos, or run `hop add -r <dir>` to populate from existing on-disk repos.")
 			fmt.Fprintln(cmd.ErrOrStderr(), "Tip: to sync this config across machines, keep it in your dotfiles and symlink ~/.config/hop/hop.yaml to it.")
 			return nil
 		},
@@ -78,37 +92,4 @@ func newConfigPrintCmd() *cobra.Command {
 			return err
 		},
 	}
-}
-
-// scanLong is the cobra Long help for `hop config scan <dir>`. Pinned in
-// T011 per spec § "External tool requirements" / intake § "Help text".
-const scanLong = `Scan a directory for git repos and populate hop.yaml.
-
-Auto-derives groups from the on-disk layout: repos at <code_root>/<org>/<name>
-land in the 'default' flat group; non-convention repos land in invented
-map-shaped groups keyed off the parent dir basename.
-
-Examples:
-  hop config scan ~/code              print the rendered YAML to stdout
-  hop config scan ~/code --write      merge into the resolved hop.yaml in place
-  hop config scan ~/code --depth 4    extend the walk one level deeper`
-
-// newConfigScanCmd returns the cobra factory for `hop config scan <dir>`.
-func newConfigScanCmd() *cobra.Command {
-	var (
-		write bool
-		depth int
-	)
-	cmd := &cobra.Command{
-		Use:   "scan <dir>",
-		Short: "scan a directory for git repos and populate hop.yaml",
-		Long:  scanLong,
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runConfigScan(cmd, args[0], depth, write)
-		},
-	}
-	cmd.Flags().BoolVar(&write, "write", false, "merge results into the resolved hop.yaml (atomic, comment-preserving). Default: render to stdout.")
-	cmd.Flags().IntVar(&depth, "depth", 3, "maximum DFS depth (root counts as depth 0; must be >= 1)")
-	return cmd
 }

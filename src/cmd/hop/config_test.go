@@ -3,12 +3,14 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/sahil87/hop/internal/config"
 	"github.com/sahil87/hop/internal/proc"
 	"github.com/sahil87/hop/internal/scan"
 )
@@ -28,7 +30,7 @@ func TestConfigInitWritesStarter(t *testing.T) {
 
 	// Verify the post-init stderr tip is the new two-line wording.
 	stderrStr := stderr.String()
-	wantLine1 := "Edit the file to add your repos, or run `hop config scan <dir>` to populate from existing on-disk repos."
+	wantLine1 := "Edit the file to add your repos, or run `hop add -r <dir>` to populate from existing on-disk repos."
 	wantLine2 := "Tip: to sync this config across machines, keep it in your dotfiles and symlink ~/.config/hop/hop.yaml to it."
 	if !strings.Contains(stderrStr, wantLine1) {
 		t.Errorf("init tip line 1 mismatch.\nwant: %q\ngot: %q", wantLine1, stderrStr)
@@ -108,11 +110,11 @@ func TestConfigPathSubcommandRemoved(t *testing.T) {
 	}
 }
 
-// --- config scan tests ----------------------------------------------------
+// --- recursive add (-r) tests ----------------------------------------------
 
 // withFakeGitRunner swaps in a fake git runner for a test and restores the
 // production one on cleanup. Tests that don't need real git but exercise
-// runConfigScan end-to-end (vs. just buildScanPlan) use this seam.
+// `hop add` end-to-end (vs. just buildScanPlan) use this seam.
 func withFakeGitRunner(t *testing.T, fake scan.GitRunner) {
 	t.Helper()
 	orig := gitRunner
@@ -149,18 +151,18 @@ func fakeURLForDir(t *testing.T, urlByDir map[string]string) scan.GitRunner {
 	}
 }
 
-// TestConfigScanMissingHopYamlPrintModeStillErrors verifies that print mode
-// (no --write) STILL errors on a missing config — print mode never touches the
-// file, so there is nothing to auto-init (R4 / Assumption 7). The surfaced
-// message is now config.Resolve()'s refined two-path hint.
-func TestConfigScanMissingHopYamlPrintModeStillErrors(t *testing.T) {
+// TestRecursiveAddMissingHopYamlPrintModeStillErrors verifies that print mode
+// (-p) STILL errors on a missing config — print mode never touches the file, so
+// there is nothing to auto-init (R2). The surfaced message is config.Resolve()'s
+// refined two-path hint.
+func TestRecursiveAddMissingHopYamlPrintModeStillErrors(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	// No config file written — the fixed path does not exist.
 	missing := filepath.Join(home, ".config", "hop", "hop.yaml")
 
 	scanRoot := t.TempDir()
-	_, stderr, err := runArgs(t, "config", "scan", scanRoot)
+	_, stderr, err := runArgs(t, "add", "-r", "-p", scanRoot)
 	if err == nil || !errors.Is(err, errSilent) {
 		t.Fatalf("expected errSilent, got %v", err)
 	}
@@ -168,13 +170,8 @@ func TestConfigScanMissingHopYamlPrintModeStillErrors(t *testing.T) {
 	if !strings.Contains(got, "no hop.yaml found at "+missing) {
 		t.Errorf("missing-config message not found; stderr=%q", got)
 	}
-	// Refined message points at hop add (and config init); the old
-	// "Run 'hop config init' first, then re-run scan." gate is gone.
 	if !strings.Contains(got, "Run 'hop add <dir>'") {
 		t.Errorf("missing refined hop-add hint; stderr=%q", got)
-	}
-	if strings.Contains(got, "re-run scan") {
-		t.Errorf("old scan-gate message still present; stderr=%q", got)
 	}
 	// Print mode must NOT have created the file.
 	if _, statErr := os.Stat(missing); statErr == nil {
@@ -182,10 +179,10 @@ func TestConfigScanMissingHopYamlPrintModeStillErrors(t *testing.T) {
 	}
 }
 
-// TestConfigScanWriteModeAutoInits verifies that --write on a fresh machine
-// auto-creates the skeleton (announced via created:) and then merges the scan
-// results (R4).
-func TestConfigScanWriteModeAutoInits(t *testing.T) {
+// TestRecursiveAddWriteModeAutoInits verifies that `hop add -r` on a fresh
+// machine auto-creates the skeleton (announced via created:) and then merges the
+// discovered repos (R1/R3).
+func TestRecursiveAddWriteModeAutoInits(t *testing.T) {
 	clearConfigEnv(t)
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -200,9 +197,9 @@ func TestConfigScanWriteModeAutoInits(t *testing.T) {
 		canonRepo: "git@github.com:sahil87/hop.git",
 	}))
 
-	_, stderr, err := runArgs(t, "config", "scan", filepath.Join(home, "code"), "--write")
+	_, stderr, err := runArgs(t, "add", "-r", filepath.Join(home, "code"))
 	if err != nil {
-		t.Fatalf("scan --write (fresh env): %v\nstderr: %s", err, stderr.String())
+		t.Fatalf("add -r (fresh env): %v\nstderr: %s", err, stderr.String())
 	}
 	got := stderr.String()
 	if !strings.Contains(got, "created: "+configPath) {
@@ -216,67 +213,33 @@ func TestConfigScanWriteModeAutoInits(t *testing.T) {
 		t.Fatalf("config not created: %v", readErr)
 	}
 	if !strings.Contains(string(contents), "git@github.com:sahil87/hop.git") {
-		t.Errorf("scanned URL not merged; got:\n%s", contents)
+		t.Errorf("discovered URL not merged; got:\n%s", contents)
 	}
 }
 
-func TestConfigScanDirNotADirectory(t *testing.T) {
-	writeReposFixture(t, "repos:\n  default: []\n")
-
-	notADir := filepath.Join(t.TempDir(), "notadir.txt")
-	if err := os.WriteFile(notADir, []byte("hi"), 0o644); err != nil {
-		t.Fatalf("setup: %v", err)
-	}
-
-	_, stderr, err := runArgs(t, "config", "scan", notADir)
-	var ec *errExitCode
-	if !errors.As(err, &ec) || ec.code != 2 {
-		t.Fatalf("expected errExitCode{code:2}, got %v", err)
-	}
-	want := "hop config scan: '" + notADir + "' is not a directory."
-	if !strings.Contains(stderr.String(), want) {
-		t.Errorf("missing not-a-directory message; stderr=%q", stderr.String())
-	}
-}
-
-func TestConfigScanDirDoesNotExist(t *testing.T) {
-	writeReposFixture(t, "repos:\n  default: []\n")
-
-	missing := "/no/such/path-test-xyz"
-	_, stderr, err := runArgs(t, "config", "scan", missing)
-	var ec *errExitCode
-	if !errors.As(err, &ec) || ec.code != 2 {
-		t.Fatalf("expected errExitCode{code:2}, got %v", err)
-	}
-	want := "hop config scan: '" + missing + "' is not a directory."
-	if !strings.Contains(stderr.String(), want) {
-		t.Errorf("missing not-a-directory message; stderr=%q", stderr.String())
-	}
-}
-
-func TestConfigScanInvalidDepth(t *testing.T) {
+func TestRecursiveAddInvalidDepth(t *testing.T) {
 	writeReposFixture(t, "repos:\n  default: []\n")
 
 	scanRoot := t.TempDir()
-	_, stderr, err := runArgs(t, "config", "scan", scanRoot, "--depth", "0")
+	_, stderr, err := runArgs(t, "add", "-r", "--depth", "0", scanRoot)
 	var ec *errExitCode
 	if !errors.As(err, &ec) || ec.code != 2 {
 		t.Fatalf("expected errExitCode{code:2}, got %v", err)
 	}
-	if !strings.Contains(stderr.String(), "hop config scan: --depth must be >= 1.") {
+	if !strings.Contains(stderr.String(), "hop add: --depth must be >= 1.") {
 		t.Errorf("missing depth-validation message; stderr=%q", stderr.String())
 	}
 }
 
-func TestConfigScanZeroReposPrintMode(t *testing.T) {
+func TestRecursiveAddZeroReposPrintMode(t *testing.T) {
 	writeReposFixture(t, "repos:\n  default: []\n")
 
 	withFakeGitRunner(t, fakeURLForDir(t, map[string]string{}))
 
 	scanRoot := t.TempDir()
-	stdout, stderr, err := runArgs(t, "config", "scan", scanRoot)
+	stdout, stderr, err := runArgs(t, "add", "-r", "-p", scanRoot)
 	if err != nil {
-		t.Fatalf("scan: %v", err)
+		t.Fatalf("add -r -p: %v", err)
 	}
 	gotErr := stderr.String()
 	if !strings.Contains(gotErr, "found 0 repos. Nothing to add.") {
@@ -284,15 +247,19 @@ func TestConfigScanZeroReposPrintMode(t *testing.T) {
 	}
 	// Header still printed; existing yaml content still on stdout.
 	gotOut := stdout.String()
-	if !strings.Contains(gotOut, "# hop config — generated by 'hop config scan "+scanRoot+"'") {
+	if !strings.Contains(gotOut, "# hop config — generated by 'hop add -r -p "+scanRoot+"'") {
 		t.Errorf("missing print-mode header; stdout=%q", gotOut)
 	}
 	if !strings.Contains(gotOut, "(UTC).") {
 		t.Errorf("missing UTC suffix in header; stdout=%q", gotOut)
 	}
+	// New-spelling trailer (replaces scan's "Run with --write to merge ...").
+	if !strings.Contains(gotErr, "Run without --print to merge into") {
+		t.Errorf("missing new-spelling print trailer; stderr=%q", gotErr)
+	}
 }
 
-func TestConfigScanConventionMatchPrintMode(t *testing.T) {
+func TestRecursiveAddConventionMatchPrintMode(t *testing.T) {
 	clearConfigEnv(t)
 	// Use an isolated HOME so $HOME-based code_root is deterministic.
 	home := t.TempDir()
@@ -319,9 +286,9 @@ func TestConfigScanConventionMatchPrintMode(t *testing.T) {
 		canonRepo: "git@github.com:sahil87/hop.git",
 	}))
 
-	stdout, stderr, err := runArgs(t, "config", "scan", scanRoot)
+	stdout, stderr, err := runArgs(t, "add", "-r", "-p", scanRoot)
 	if err != nil {
-		t.Fatalf("scan: %v", err)
+		t.Fatalf("add -r -p: %v", err)
 	}
 	gotOut := stdout.String()
 	gotErr := stderr.String()
@@ -334,13 +301,17 @@ func TestConfigScanConventionMatchPrintMode(t *testing.T) {
 	if !strings.Contains(gotErr, "matched convention (default): 1") {
 		t.Errorf("expected matched-convention summary line; stderr=%q", gotErr)
 	}
-	// Header references the user-supplied arg verbatim.
-	if !strings.Contains(gotOut, "'hop config scan "+scanRoot+"'") {
+	// Header references the user-supplied arg verbatim, new spelling.
+	if !strings.Contains(gotOut, "'hop add -r -p "+scanRoot+"'") {
 		t.Errorf("header user-arg mismatch; stdout=%q", gotOut)
+	}
+	// Print mode must NOT have mutated the file.
+	if got, _ := os.ReadFile(hopYaml); string(got) != original {
+		t.Errorf("print mode mutated hop.yaml; got:\n%s", got)
 	}
 }
 
-func TestConfigScanNonConventionInventsGroup(t *testing.T) {
+func TestRecursiveAddNonConventionInventsGroup(t *testing.T) {
 	clearConfigEnv(t)
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -362,9 +333,9 @@ func TestConfigScanNonConventionInventsGroup(t *testing.T) {
 	}))
 
 	scanRoot := filepath.Join(home, "vendor")
-	stdout, stderr, err := runArgs(t, "config", "scan", scanRoot)
+	stdout, stderr, err := runArgs(t, "add", "-r", "-p", scanRoot)
 	if err != nil {
-		t.Fatalf("scan: %v", err)
+		t.Fatalf("add -r -p: %v", err)
 	}
 	gotOut := stdout.String()
 	gotErr := stderr.String()
@@ -379,7 +350,7 @@ func TestConfigScanNonConventionInventsGroup(t *testing.T) {
 	}
 }
 
-func TestConfigScanWriteMode(t *testing.T) {
+func TestRecursiveAddWriteMode(t *testing.T) {
 	clearConfigEnv(t)
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -399,9 +370,9 @@ func TestConfigScanWriteMode(t *testing.T) {
 		canonRepo: "git@github.com:sahil87/hop.git",
 	}))
 
-	stdout, stderr, err := runArgs(t, "config", "scan", filepath.Join(home, "code"), "--write")
+	stdout, stderr, err := runArgs(t, "add", "-r", filepath.Join(home, "code"))
 	if err != nil {
-		t.Fatalf("scan --write: %v", err)
+		t.Fatalf("add -r: %v", err)
 	}
 	if stdout.Len() != 0 {
 		t.Errorf("write mode should have empty stdout; got %q", stdout.String())
@@ -419,7 +390,7 @@ func TestConfigScanWriteMode(t *testing.T) {
 	}
 }
 
-func TestConfigScanGitMissingPropagates(t *testing.T) {
+func TestRecursiveAddGitMissingPropagates(t *testing.T) {
 	clearConfigEnv(t)
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -438,12 +409,362 @@ func TestConfigScanGitMissingPropagates(t *testing.T) {
 		return nil, proc.ErrNotFound
 	})
 
-	_, stderr, err := runArgs(t, "config", "scan", filepath.Join(home, "code"))
+	_, stderr, err := runArgs(t, "add", "-r", filepath.Join(home, "code"))
 	if !errors.Is(err, errSilent) {
 		t.Fatalf("expected errSilent, got %v", err)
 	}
 	if !strings.Contains(stderr.String(), gitMissingHint) {
 		t.Errorf("missing git-hint; stderr=%q", stderr.String())
+	}
+}
+
+// TestSingleDirAddPrintDryRun verifies the NEW single-dir dry-run: `hop add -p
+// <dir>` (no -r) renders the one-repo plan to stdout and writes nothing (R2).
+func TestSingleDirAddPrintDryRun(t *testing.T) {
+	clearConfigEnv(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	hopYaml := filepath.Join(home, ".config", "hop", "hop.yaml")
+	if err := os.MkdirAll(filepath.Dir(hopYaml), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	original := "config:\n  code_root: ~/code\nrepos:\n  default: []\n"
+	if err := os.WriteFile(hopYaml, []byte(original), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	repoDir := filepath.Join(home, "code", "sahil87", "hop")
+	makeRepoDir(t, repoDir)
+	canonRepo, _ := filepath.EvalSymlinks(repoDir)
+	withFakeGitRunner(t, fakeURLForDir(t, map[string]string{
+		canonRepo: "git@github.com:sahil87/hop.git",
+	}))
+
+	stdout, stderr, err := runArgs(t, "add", "-p", repoDir)
+	if err != nil {
+		t.Fatalf("add -p (single dir): %v\nstderr: %s", err, stderr.String())
+	}
+	gotOut := stdout.String()
+	// The rendered plan contains the URL and the header.
+	if !strings.Contains(gotOut, "git@github.com:sahil87/hop.git") {
+		t.Errorf("single-dir dry-run did not render the URL; stdout=%q", gotOut)
+	}
+	if !strings.Contains(gotOut, "# hop config — generated by 'hop add -r -p "+repoDir+"'") {
+		t.Errorf("missing print-mode header; stdout=%q", gotOut)
+	}
+	// No write: file byte-for-byte unchanged.
+	if got, _ := os.ReadFile(hopYaml); string(got) != original {
+		t.Errorf("single-dir dry-run mutated hop.yaml; got:\n%s", got)
+	}
+	// Print trailer present on stderr.
+	if !strings.Contains(stderr.String(), "Run without --print to merge into") {
+		t.Errorf("missing print trailer; stderr=%q", stderr.String())
+	}
+}
+
+// TestAddForcedGroupAutoCreates verifies -g <name> auto-creates a missing group
+// (announced via `created group:`), places the repo into it, and writes (R5).
+func TestAddForcedGroupAutoCreates(t *testing.T) {
+	clearConfigEnv(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	hopYaml := filepath.Join(home, ".config", "hop", "hop.yaml")
+	if err := os.MkdirAll(filepath.Dir(hopYaml), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	// No 'vendor' group exists yet.
+	original := "config:\n  code_root: ~/code\nrepos:\n  default: []\n"
+	if err := os.WriteFile(hopYaml, []byte(original), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	// A convention repo (would normally land in default) — -g must override that.
+	repoDir := filepath.Join(home, "code", "sahil87", "hop")
+	makeRepoDir(t, repoDir)
+	canonRepo, _ := filepath.EvalSymlinks(repoDir)
+	withFakeGitRunner(t, fakeURLForDir(t, map[string]string{
+		canonRepo: "git@github.com:sahil87/hop.git",
+	}))
+
+	_, stderr, err := runArgs(t, "add", "-g", "vendor", repoDir)
+	if err != nil {
+		t.Fatalf("add -g vendor: %v\nstderr: %s", err, stderr.String())
+	}
+	got := stderr.String()
+	if !strings.Contains(got, "created group: vendor") {
+		t.Errorf("missing 'created group: vendor' announcement; stderr=%q", got)
+	}
+	contents, _ := os.ReadFile(hopYaml)
+	gotStr := string(contents)
+	if !strings.Contains(gotStr, "vendor:") {
+		t.Errorf("expected 'vendor:' group in hop.yaml; got:\n%s", gotStr)
+	}
+	if !strings.Contains(gotStr, "git@github.com:sahil87/hop.git") {
+		t.Errorf("URL not placed into forced group; got:\n%s", gotStr)
+	}
+	// The convention default group must NOT have received the URL.
+	if strings.Contains(gotStr, "default:\n    - git@github.com:sahil87/hop.git") {
+		t.Errorf("forced-group repo leaked into default; got:\n%s", gotStr)
+	}
+}
+
+// TestAddForcedGroupExistingNoAnnouncement verifies that when -g names an
+// already-existing group, repos are appended with NO `created group:` line (R5).
+func TestAddForcedGroupExistingNoAnnouncement(t *testing.T) {
+	clearConfigEnv(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	hopYaml := filepath.Join(home, ".config", "hop", "hop.yaml")
+	if err := os.MkdirAll(filepath.Dir(hopYaml), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	// 'work' already exists as an empty flat group.
+	original := "config:\n  code_root: ~/code\nrepos:\n  default: []\n  work: []\n"
+	if err := os.WriteFile(hopYaml, []byte(original), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	repoDir := filepath.Join(home, "code", "sahil87", "hop")
+	makeRepoDir(t, repoDir)
+	canonRepo, _ := filepath.EvalSymlinks(repoDir)
+	withFakeGitRunner(t, fakeURLForDir(t, map[string]string{
+		canonRepo: "git@github.com:sahil87/hop.git",
+	}))
+
+	_, stderr, err := runArgs(t, "add", "-g", "work", repoDir)
+	if err != nil {
+		t.Fatalf("add -g work: %v\nstderr: %s", err, stderr.String())
+	}
+	got := stderr.String()
+	if strings.Contains(got, "created group:") {
+		t.Errorf("must NOT announce created group: for an existing group; stderr=%q", got)
+	}
+	contents, _ := os.ReadFile(hopYaml)
+	if !strings.Contains(string(contents), "git@github.com:sahil87/hop.git") {
+		t.Errorf("URL not appended to existing group; got:\n%s", contents)
+	}
+}
+
+// TestRecursiveAddForcedGroup verifies -r combined with -g forces every
+// discovered repo into the named (auto-created) group (R1/R5).
+func TestRecursiveAddForcedGroup(t *testing.T) {
+	clearConfigEnv(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	hopYaml := filepath.Join(home, ".config", "hop", "hop.yaml")
+	if err := os.MkdirAll(filepath.Dir(hopYaml), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	original := "config:\n  code_root: ~/code\nrepos:\n  default: []\n"
+	if err := os.WriteFile(hopYaml, []byte(original), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	// Two repos under ~/clients (non-convention).
+	repoA := filepath.Join(home, "clients", "acme", "site")
+	repoB := filepath.Join(home, "clients", "globex", "api")
+	makeRepoDir(t, repoA)
+	makeRepoDir(t, repoB)
+	canonA, _ := filepath.EvalSymlinks(repoA)
+	canonB, _ := filepath.EvalSymlinks(repoB)
+	withFakeGitRunner(t, fakeURLForDir(t, map[string]string{
+		canonA: "git@github.com:acme/site.git",
+		canonB: "git@github.com:globex/api.git",
+	}))
+
+	_, stderr, err := runArgs(t, "add", "-r", "-g", "work", filepath.Join(home, "clients"))
+	if err != nil {
+		t.Fatalf("add -r -g work: %v\nstderr: %s", err, stderr.String())
+	}
+	got := stderr.String()
+	if !strings.Contains(got, "created group: work") {
+		t.Errorf("missing 'created group: work'; stderr=%q", got)
+	}
+	// S2: a user-named -g group is "forced", not "invented" — the summary must
+	// say `forced group: work` and MUST NOT mislabel it as `invented groups:`.
+	if !strings.Contains(got, "forced group: work") {
+		t.Errorf("missing 'forced group: work' summary line; stderr=%q", got)
+	}
+	if strings.Contains(got, "invented groups:") {
+		t.Errorf("user-named -g group must not be labeled 'invented groups:'; stderr=%q", got)
+	}
+	contents, _ := os.ReadFile(hopYaml)
+	gotStr := string(contents)
+	if !strings.Contains(gotStr, "work:") {
+		t.Errorf("expected 'work:' group; got:\n%s", gotStr)
+	}
+	if !strings.Contains(gotStr, "git@github.com:acme/site.git") || !strings.Contains(gotStr, "git@github.com:globex/api.git") {
+		t.Errorf("both repos should be in the forced group; got:\n%s", gotStr)
+	}
+	// No invented per-parent-dir groups (acme/globex) should appear — -g forces all.
+	if strings.Contains(gotStr, "acme:") || strings.Contains(gotStr, "globex:") {
+		t.Errorf("-g must override invented-group logic; got:\n%s", gotStr)
+	}
+}
+
+// TestAddForcedGroupPrintRendersFlatList is the M1 regression guard: in print
+// mode the forced group (`-g <name>`) MUST render as a flat list
+// `<name>: [urls…]` with NO `dir` key — byte-identical to what write mode
+// produces — and the rendered output MUST itself be loadable. The old bug
+// synthesized a map-shaped group with `dir: ""`, which both misrepresented the
+// write and failed to load (`group '<name>' has empty 'dir'`). Covers both the
+// single-dir (`-g -p`) and recursive (`-r -g -p`) variants (R2/R5; A-002/A-013/
+// A-019).
+func TestAddForcedGroupPrintRendersFlatList(t *testing.T) {
+	const url = "git@github.com:sahil87/hop.git"
+
+	cases := []struct {
+		name string
+		args func(repoDir string) []string // CLI args for the print invocation
+	}{
+		{
+			name: "single-dir -g -p",
+			args: func(repoDir string) []string { return []string{"add", "-g", "vendor", "-p", repoDir} },
+		},
+		{
+			name: "recursive -r -g -p",
+			args: func(repoDir string) []string { return []string{"add", "-r", "-g", "vendor", "-p", repoDir} },
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			clearConfigEnv(t)
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			hopYaml := filepath.Join(home, ".config", "hop", "hop.yaml")
+			if err := os.MkdirAll(filepath.Dir(hopYaml), 0o755); err != nil {
+				t.Fatalf("mkdir: %v", err)
+			}
+			// No 'vendor' group exists yet — forces the create/synthesize path.
+			const original = "config:\n  code_root: ~/code\nrepos:\n  default: []\n"
+			if err := os.WriteFile(hopYaml, []byte(original), 0o644); err != nil {
+				t.Fatalf("write: %v", err)
+			}
+
+			// A convention repo (would normally land in default) — -g overrides.
+			repoDir := filepath.Join(home, "code", "sahil87", "hop")
+			makeRepoDir(t, repoDir)
+			canonRepo, _ := filepath.EvalSymlinks(repoDir)
+			withFakeGitRunner(t, fakeURLForDir(t, map[string]string{canonRepo: url}))
+
+			// --- Print mode: render to stdout, write nothing. ---
+			stdout, stderr, err := runArgs(t, tc.args(repoDir)...)
+			if err != nil {
+				t.Fatalf("print invocation: %v\nstderr: %s", err, stderr.String())
+			}
+			printed := stdout.String()
+
+			// Flat shape: `vendor:` followed by a `- <url>` list item, and NO
+			// `dir:` key anywhere in the rendered output.
+			if !strings.Contains(printed, "vendor:") {
+				t.Fatalf("rendered plan has no 'vendor:' group; stdout=%q", printed)
+			}
+			if strings.Contains(printed, "dir:") {
+				t.Errorf("forced group must render flat (no 'dir:' key); stdout=%q", printed)
+			}
+			// Correct M1 shape: a flat list under the group key carrying the URL,
+			// e.g. `vendor: ['…']` — NOT a map-shaped `vendor:\n  dir: ""\n …`.
+			if !strings.Contains(printed, url) {
+				t.Errorf("forced group should render the URL in a flat list; stdout=%q", printed)
+			}
+			wantFlat := fmt.Sprintf("vendor: ['%s']", url)
+			if !strings.Contains(printed, wantFlat) {
+				t.Errorf("forced group should render as a flat list %q; stdout=%q", wantFlat, printed)
+			}
+			// Print must not touch the file.
+			if got, _ := os.ReadFile(hopYaml); string(got) != original {
+				t.Errorf("print mode mutated hop.yaml; got:\n%s", got)
+			}
+
+			// --- Loadability: the rendered YAML body (header stripped) parses
+			// without the empty-'dir' error. ---
+			body := stripPrintHeader(printed)
+			loadable := filepath.Join(t.TempDir(), "rendered.yaml")
+			if err := os.WriteFile(loadable, []byte(body), 0o644); err != nil {
+				t.Fatalf("write rendered: %v", err)
+			}
+			cfg, err := config.Load(loadable)
+			if err != nil {
+				t.Fatalf("rendered plan does not load (M1 regression): %v\nbody:\n%s", err, body)
+			}
+			if !groupHasURL(cfg, "vendor", url) {
+				t.Errorf("rendered 'vendor' group missing URL after load; body:\n%s", body)
+			}
+
+			// --- Write parity: write mode produces the same flat shape. ---
+			writeArgs := stripPrintFlag(tc.args(repoDir))
+			if _, werr, err := runArgs(t, writeArgs...); err != nil {
+				t.Fatalf("write invocation: %v\nstderr: %s", err, werr.String())
+			}
+			written, _ := os.ReadFile(hopYaml)
+			if !strings.Contains(string(written), "vendor:") || strings.Contains(string(written), "dir:") {
+				t.Errorf("write mode produced a different shape than print; got:\n%s", written)
+			}
+			// The rendered print body equals the bytes write produced (both go
+			// through RenderScan into the identical flat node).
+			if body != string(written) {
+				t.Errorf("print render != write bytes (shape parity broken):\nprint:\n%q\nwrite:\n%q", body, written)
+			}
+		})
+	}
+}
+
+// stripPrintHeader removes the two-line `# hop config …` print-mode header,
+// returning just the YAML body that RenderScan produced.
+func stripPrintHeader(printed string) string {
+	lines := strings.SplitAfter(printed, "\n")
+	var body []string
+	skip := 0
+	for _, l := range lines {
+		if skip < 2 && strings.HasPrefix(l, "#") {
+			skip++
+			continue
+		}
+		body = append(body, l)
+	}
+	return strings.Join(body, "")
+}
+
+// stripPrintFlag returns args with the "-p" element removed (to derive the
+// equivalent write invocation from a print invocation).
+func stripPrintFlag(args []string) []string {
+	out := make([]string, 0, len(args))
+	for _, a := range args {
+		if a == "-p" {
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
+}
+
+// groupHasURL reports whether cfg has a group named name containing url.
+func groupHasURL(cfg *config.Config, name, url string) bool {
+	for _, g := range cfg.Groups {
+		if g.Name != name {
+			continue
+		}
+		for _, u := range g.URLs {
+			if u == url {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// TestConfigScanUnknownCommand verifies the hard break (R7): `hop config scan`
+// is gone, so cobra returns an unknown-command error (no alias).
+func TestConfigScanUnknownCommand(t *testing.T) {
+	writeReposFixture(t, "repos:\n  default: []\n")
+
+	_, _, err := runArgs(t, "config", "scan", "/tmp")
+	if err == nil {
+		t.Fatalf("expected unknown-command error for deleted `config scan`, got nil")
+	}
+	if !strings.Contains(err.Error(), "unknown command") {
+		t.Errorf("expected cobra 'unknown command' error; got %q", err.Error())
 	}
 }
 
@@ -472,7 +793,7 @@ func TestSlugifyGroupName(t *testing.T) {
 	}
 }
 
-func TestConfigScanSlugifyEmptySkipsGracefully(t *testing.T) {
+func TestRecursiveAddSlugifyEmptySkipsGracefully(t *testing.T) {
 	clearConfigEnv(t)
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -493,16 +814,16 @@ func TestConfigScanSlugifyEmptySkipsGracefully(t *testing.T) {
 		canonRepo: "git@github.com:sahil87/hop.git",
 	}))
 
-	_, stderr, err := runArgs(t, "config", "scan", filepath.Join(home, "elsewhere"))
+	_, stderr, err := runArgs(t, "add", "-r", "-p", filepath.Join(home, "elsewhere"))
 	if err != nil {
-		t.Fatalf("scan: %v", err)
+		t.Fatalf("add -r -p: %v", err)
 	}
 	if !strings.Contains(stderr.String(), "skip: ") || !strings.Contains(stderr.String(), "cannot derive group name") {
 		t.Errorf("expected slugify-fail skip line; stderr=%q", stderr.String())
 	}
 }
 
-func TestConfigScanConflictResolutionDirMismatch(t *testing.T) {
+func TestRecursiveAddConflictResolutionDirMismatch(t *testing.T) {
 	clearConfigEnv(t)
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -540,9 +861,9 @@ repos:
 		canonNew: "git@github.com:vendor/thing.git",
 	}))
 
-	stdout, stderr, err := runArgs(t, "config", "scan", filepath.Join(home, "elsewhere"))
+	stdout, stderr, err := runArgs(t, "add", "-r", "-p", filepath.Join(home, "elsewhere"))
 	if err != nil {
-		t.Fatalf("scan: %v", err)
+		t.Fatalf("add -r -p: %v", err)
 	}
 	if !strings.Contains(stdout.String(), "vendor-2:") {
 		t.Errorf("expected 'vendor-2' suffix in stdout; stdout=%q", stdout.String())
@@ -552,7 +873,7 @@ repos:
 	}
 }
 
-func TestConfigScanHeaderUTCFormat(t *testing.T) {
+func TestRecursiveAddHeaderUTCFormat(t *testing.T) {
 	clearConfigEnv(t)
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -571,9 +892,9 @@ func TestConfigScanHeaderUTCFormat(t *testing.T) {
 	// race: the header is stamped during runArgs, so if the UTC day rolls
 	// between capture and assertion the test would flake.
 	dateBefore := time.Now().UTC().Format("2006-01-02")
-	stdout, _, err := runArgs(t, "config", "scan", scanRoot)
+	stdout, _, err := runArgs(t, "add", "-r", "-p", scanRoot)
 	if err != nil {
-		t.Fatalf("scan: %v", err)
+		t.Fatalf("add -r -p: %v", err)
 	}
 	dateAfter := time.Now().UTC().Format("2006-01-02")
 	if !strings.Contains(stdout.String(), dateBefore+" (UTC).") &&
@@ -582,13 +903,13 @@ func TestConfigScanHeaderUTCFormat(t *testing.T) {
 	}
 }
 
-func TestConfigScanRequiresExactlyOneArg(t *testing.T) {
+func TestAddRequiresExactlyOneArg(t *testing.T) {
 	writeReposFixture(t, "repos:\n  default: []\n")
 
 	// No positional → cobra ExactArgs(1) error (cobra returns its own error;
 	// runArgs returns it without translateExit applied, so we just check err
 	// is non-nil).
-	_, _, err := runArgs(t, "config", "scan")
+	_, _, err := runArgs(t, "add")
 	if err == nil {
 		t.Fatalf("expected error from cobra for missing arg, got nil")
 	}
@@ -607,19 +928,22 @@ func TestConfigSubcommandsListedUnderConfigHelp(t *testing.T) {
 	// hop.yaml path", so a bare strings.Contains(gotOut, "print") would pass
 	// even if the `print` subcommand were never registered.
 	wants := []string{
-		"bootstrap a starter hop.yaml",                         // init
-		"print the resolved hop.yaml path",                     // where
-		"scan a directory for git repos and populate hop.yaml", // scan
-		"print the resolved hop.yaml contents to stdout",       // print
+		"bootstrap a starter hop.yaml",                   // init
+		"print the resolved hop.yaml path",               // where
+		"print the resolved hop.yaml contents to stdout", // print
 	}
 	for _, line := range wants {
 		if !strings.Contains(gotOut, line) {
 			t.Errorf("expected %q in config --help; got:\n%s", line, gotOut)
 		}
 	}
-	// `add` and `rm` are now hidden aliases under config (change mw9h promoted
-	// them to top-level). They MUST NOT appear in `config --help`.
-	if strings.Contains(gotOut, "register a single on-disk repo into hop.yaml") {
+	// `scan` is deleted (no alias) — its Short must NOT appear under config.
+	if strings.Contains(gotOut, "scan a directory for git repos") {
+		t.Errorf("deleted `config scan` Short still in config --help; got:\n%s", gotOut)
+	}
+	// `add` and `rm` are hidden aliases under config (promoted to top-level).
+	// They MUST NOT appear in `config --help`.
+	if strings.Contains(gotOut, "register on-disk repos into hop.yaml") {
 		t.Errorf("hidden alias `config add` Short leaked into config --help; got:\n%s", gotOut)
 	}
 	if strings.Contains(gotOut, "remove a registered repo from hop.yaml") {

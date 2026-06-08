@@ -22,8 +22,8 @@ src/
 │   ├── open.go                   # runOpen — execs `wt open <path>` (PASSTHROUGH passthrough; shim owns the cd-handoff)
 │   ├── shell_init.go             # posixInit (shared zsh+bash protocol-interpreter shim, hard-codes zero subcommand names) + _hop_passthrough + cobra GenZshCompletion / GenBashCompletionV2 at runtime
 │   ├── config.go                 # config parent + nested init/where/scan/print factories; also wires the HIDDEN config add/config rm aliases
-│   ├── config_scan.go            # `hop config scan` RunE + slugify, conflict resolution, summary emission + shared validateConfigDir
-│   ├── config_add.go             # canonical `hop add <dir>` (newAddCmd) + hidden alias `hop config add` (newConfigAddCmd), both backed by the shared runAdd(cmd, cmdName, arg) — single-dir classify (scan.ClassifyOne) + buildScanPlan + MergeScan
+│   ├── config_scan.go            # shared plan-building helpers for `hop add`: validateConfigDir, buildScanPlan, slugify, conflict resolution, scanPlanSummary (the `config scan` cobra command was deleted in w2bj; helpers retained)
+│   ├── config_add.go             # canonical `hop add <dir>` (newAddCmd) + hidden alias `hop config add` (newConfigAddCmd), both backed by the shared runAdd(cmd, cmdName, arg, opts) — flags -r/-p/--depth/-g; single-dir (scan.ClassifyOne) or recursive (scan.Walk) discovery + buildScanPlan/buildForcedGroupPlan + MergeScan/RenderScan; addPrintHeader/emitAddSummary
 │   ├── config_rm.go              # canonical `hop rm [<name>]` (newRmCmd) + hidden alias `hop config rm` (newConfigRmCmd), both backed by the shared runRm(cmd, cmdName, stale, name) — fzf picker (pickOne seam) + path-column map-back, OR resolveByName for the positional path, then the shared removeRepo → yamled.RemoveURL
 │   ├── help_dump.go              # hidden `hop help-dump` producer — Doc/Node structs, cobra-tree walk, buildHelpDoc(cmd.Root())
 │   ├── *_test.go                 # adjacent unit tests (incl. shim_plan_test.go — classifier CD/RUN_IN_PARENT/PASSTHROUGH/plural-guard tests)
@@ -42,7 +42,7 @@ src/
     ├── yamled/                   # comment-preserving YAML node-level edits
     │   ├── yamled.go             # AppendURL, RemoveURL, MergeScan, RenderScan, ScanPlan, InventedGroup, ErrGroupNotFound, ErrURLNotFound, atomic write
     │   └── yamled_test.go
-    ├── scan/                     # DFS walk + repo classification for `hop config scan` / `hop add`
+    ├── scan/                     # DFS walk + repo classification for `hop add` (single-dir + recursive `-r`)
     │   ├── scan.go               # Walk, ClassifyOne, Found, Skip, Options, GitRunner; closed Reason enum; (dev,inode) loop dedup
     │   └── scan_test.go
     ├── fzf/                      # fzf wrapper
@@ -122,7 +122,7 @@ Errors are wrapped fmt.Errorf strings; missing-group is additionally wrapped via
 
 ## `internal/scan`
 
-Owns the directory walk and repo classification for `hop config scan`. UI-free: knows how to recognize git working trees (vs worktrees, submodules, bare repos, no-remote repos) and how to follow symlinks safely with `(dev, inode)` loop dedup; does NOT know about groups, slugify, conflict resolution, YAML rendering, or stderr UX (those live in the CLI / yamled layers).
+Owns the directory walk and repo classification for `hop add` (single-dir via `ClassifyOne`, recursive via `Walk` under `-r`). UI-free: knows how to recognize git working trees (vs worktrees, submodules, bare repos, no-remote repos) and how to follow symlinks safely with `(dev, inode)` loop dedup; does NOT know about groups, slugify, conflict resolution, YAML rendering, or stderr UX (those live in the CLI / yamled layers). The package is **untouched** by the `config scan` → `hop add -r` unification (change `260608-w2bj-unify-recursive-add` was a CLI-layer dispatch change only).
 
 API:
 
@@ -143,7 +143,7 @@ const (
 )
 ```
 
-`Walk` performs a stack-based DFS, classifies each candidate via first-match-wins rules, and registers found repos by invoking `git remote` + `git remote get-url` through `Options.GitRunner` (production binds `internal/proc.RunCapture`). Tests inject a fake `GitRunner` so no real `git` subprocess spawns. Discovery order is DFS lexical (deterministic for reproducible test fixtures and slug-tie tiebreaking). See [config/scan](../config/scan.md) for the classification rules and the submodule-handling rationale.
+`Walk` performs a stack-based DFS, classifies each candidate via first-match-wins rules, and registers found repos by invoking `git remote` + `git remote get-url` through `Options.GitRunner` (production binds `internal/proc.RunCapture`). It is the discovery engine behind `hop add -r`. Tests inject a fake `GitRunner` so no real `git` subprocess spawns. Discovery order is DFS lexical (deterministic for reproducible test fixtures and slug-tie tiebreaking). See [config/add-register](../config/add-register.md) for the classification rules and the submodule-handling rationale.
 
 `ClassifyOne` (added in change `260602-n1me-config-add-rm-folders`, consumed by `cmd/hop/config_add.go`'s shared `runAdd` body) is the **single-dir entry point** for `hop add` (and its hidden `hop config add` alias): it classifies one already-canonical directory (no recursion, `opts.Depth` ignored) and, for a normal repo, inspects its remote — reusing the *exact* unexported `classifyDir` + `inspectRepo` logic `Walk` applies per directory. It returns exactly one of: `isRepo=true` with `Found` populated (normal repo with a usable remote); `isRepo=false` with `skipReason` set to a `Reason*` constant (worktree / bare repo / no-remote); or `isRepo=false` with `skipReason==""` (a plain non-git dir). `err` is non-nil only on a fatal `git` failure (wraps `proc.ErrNotFound` for `errors.Is` matching). **Exported-seam design note**: `ClassifyOne` is the *smallest* exported surface that gives the CLI what it needs — exporting `classifyDir` raw was rejected because it would leak the private `dirClass` enum and skip the remote-inspection step (`inspectRepo`) the CLI requires. The CLI canonicalizes `dir` (via the shared `validateConfigDir`) before calling, and `ClassifyOne` stays UI-free like the rest of the package.
 
@@ -166,5 +166,5 @@ The shim hard-codes **zero** subcommand names. The binary's `isKnownSubcommand` 
 
 - CLI grammar, `--shim-plan` protocol, shim shape: [cli/subcommands](../cli/subcommands.md)
 - Wrapper boundaries (`internal/proc`, `internal/fzf`, `internal/yamled`, `internal/scan` separation): [wrapper-boundaries](wrapper-boundaries.md)
-- Scan command behavior, classification rules, group assignment: [config/scan](../config/scan.md)
+- `hop add` behavior (single-dir + recursive `-r`), classification rules, group assignment: [config/add-register](../config/add-register.md)
 - Build pipeline: [build/local](../build/local.md)
