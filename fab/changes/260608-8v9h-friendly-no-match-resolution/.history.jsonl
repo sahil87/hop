@@ -1,0 +1,16 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-06-08T09:30:16Z"}
+{"args":"fix: friendlier no-match DX for repo resolution. When a query matches zero repos (e.g. hop looo), suppress the fzf --query prefill so the user sees the full browsable repo list instead of a dead-end empty 0/13 picker; keep prefill for 2+ matches. Also fix the fzf exit-1 leak by folding fzf exit code 1 into errFzfCancelled alongside 130.","cmd":"fab-new","event":"command","ts":"2026-06-08T09:30:16Z"}
+{"delta":"+2.8","event":"confidence","score":2.8,"trigger":"calc-score","ts":"2026-06-08T09:31:49Z"}
+{"delta":"+0.0","event":"confidence","score":2.8,"trigger":"calc-score","ts":"2026-06-08T09:31:54Z"}
+{"cmd":"fab-clarify","event":"command","ts":"2026-06-08T09:42:59Z"}
+{"delta":"+2.2","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-06-08T09:44:09Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-06-08T09:44:23Z"}
+{"delta":"+0.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-06-08T09:44:29Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-06-08T09:45:00Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-06-08T09:45:05Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-06-08T09:47:36Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-06-08T09:49:53Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-06-08T09:52:46Z"}
+{"event":"review","result":"passed","ts":"2026-06-08T09:52:46Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-06-08T09:54:28Z"}
+{"cmd":"git-pr","event":"command","ts":"2026-06-08T16:50:29Z"}

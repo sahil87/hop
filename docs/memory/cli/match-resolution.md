@@ -13,8 +13,8 @@ The `pull`/`push`/`sync` batch verbs (action tokens, not subcommands) use a rich
 3. If `query == ""` → skip step 4 and go straight to fzf with the full list (no `--query` flag). This handles bare `hop`, `hop clone` (no name), etc.
 4. If `query != ""` → filter via `Repos.MatchOne(query)`: case-insensitive substring on `Name` only (not Path, not URL).
    - Exactly **1 match** → return it directly. Fzf is **not** invoked. (This is the path that works without fzf installed.)
-   - 0 or 2+ matches → fall through to fzf.
-5. Fzf invocation: `internal/fzf.Pick(ctx, lines, query)` pipes the **full repo list** (not the filtered subset) to fzf via stdin. Each line is `display\tpath\turl`. Fzf displays only the first column (`--with-nth 1 --delimiter '\t'`). The display column is built by `buildPickerLines` (see below).
+   - 0 or 2+ matches → fall through to fzf, but the `--query` prefill differs by count (change `8v9h`): **0 matches** → suppress the prefill (pass `""` to the picker) so fzf opens on the full browsable list rather than the user's dead query showing an empty `0/N` filtered picker; **2+ matches** → keep the query prefilled to narrow. `resolveByName` computes `fzfQuery := query` and resets it to `""` only when `len(candidates) == 0`.
+5. Fzf invocation: `pickResolve(ctx, lines, fzfQuery)` (the seam — see [Fzf invocation](#fzf-invocation)) pipes the **full repo list** (not the filtered subset) to fzf via stdin, where `fzfQuery` is `""` for the 0-match (and bare-`hop`) case and the original query for the 2+-match case. Each line is `display\tpath\turl`. Fzf displays only the first column (`--with-nth 1 --delimiter '\t'`). The display column is built by `buildPickerLines` (see below).
 6. The returned line's path column (the second tab-separated field) is matched back to the source `Repos` to recover the full `*Repo`.
 
 ### Worktree-resolution sub-step (change `7eab`)
@@ -59,14 +59,18 @@ fzf --query <q> --select-1 --height 40% --reverse --with-nth 1 --delimiter '<TAB
 
 `Pick` uses `context.Background()` (no timeout — user is at the keyboard).
 
+`resolveByName` does not call `fzf.Pick` directly — it goes through a swappable package-level seam `var pickResolve = fzf.Pick` (change `8v9h`), mirroring `config_rm.go`'s `pickOne = fzf.Pick` precedent. It is named `pickResolve` (not `pickRepo`) to avoid colliding with the `pickOne` var and `pickRepo` func already declared in `config_rm.go`'s `package main`. Tests swap it to capture the query argument and inject exit-code errors without spawning a real fzf.
+
 ## Cancellation and missing fzf
 
-- Fzf exit 130 (Esc / Ctrl-C) → `proc.Run` returns a non-nil error; `resolveByName` returns `errFzfCancelled` → `translateExit` (or the `--shim-plan` path's `shimResolveErr`) maps to exit 130.
+- Fzf exit 130 (Esc / Ctrl-C) **and exit 1** (list exhausted, no selectable match) both → `proc.Run` returns a non-nil error; `resolveByName` folds both codes into `errFzfCancelled` → `translateExit` (or the `--shim-plan` path's `shimResolveErr`) maps to exit 130. Exit 1 was folded in by change `8v9h`: previously it fell through to the generic `hop: fzf failed: %w` wrap, leaking `hop: fzf failed: exit status 1` for what is really "no repo chosen". With the 0-match prefill suppression (Algorithm step 4) the list piped to fzf is always non-empty, so exit 1 should rarely fire, but folding it in removes the leak unconditionally. The guard is `if code, ok := proc.ExitCode(err); ok && (code == 130 || code == 1)`. Any **other** non-zero exit code (e.g. 2), or a non-exit I/O error, still surfaces as a real `hop: fzf failed: %w`.
 - Fzf not on PATH → `proc.ErrNotFound` propagates; `resolveByName` returns `errFzfMissing`. The cobra-friendly wrapper `resolveOne` writes `fzfMissingHint` to `cmd.ErrOrStderr()` and returns `errSilent` (exit 1). The `--shim-plan` path's `shimResolveErr` writes the hint directly to `os.Stderr`.
 
 ## Why the full list (not the filtered subset) goes to fzf
 
-Sending the unfiltered list with `--query <q>` lets the user clear the query inside fzf to browse all repos when their initial query yielded zero matches. The bash original behaved this way; the Go port preserves it.
+Sending the unfiltered list (rather than the filtered subset) lets the user browse all repos when their query was ambiguous or yielded zero matches. The bash original behaved this way; the Go port preserves it.
+
+For a **zero-match** query the prefill itself is also dropped (change `8v9h`): rather than open fzf with `--query <dead-query>` (which would filter the full list down to an empty `0/N` picker, forcing the user to manually clear the query to recover the browse list), `resolveByName` passes `""` so fzf opens directly on the full browsable list. The 2+-match case still prefills `--query <q>` (narrowing is helpful there); the bare-`hop` empty-query case already passed `""` and is unchanged; the 1-match case still short-circuits without fzf.
 
 ## Order
 

@@ -37,6 +37,13 @@ var errFzfMissing = errors.New("fzf missing")
 // written and we just want to exit 1 without re-emitting the error message.
 var errSilent = errors.New("silent")
 
+// pickResolve is the seam for the interactive fzf selection in resolveByName.
+// Defaults to fzf.Pick; tests swap it to capture the query argument and inject
+// exit-code errors without spawning a real fzf. Mirrors the pickOne = fzf.Pick
+// seam in config_rm.go (named pickResolve here to avoid colliding with that
+// package-level pickOne var and the pickRepo func also declared in config_rm.go).
+var pickResolve = fzf.Pick
+
 // loadRepos resolves hop.yaml and parses it into a Repos list.
 func loadRepos() (repos.Repos, error) {
 	path, err := config.Resolve()
@@ -89,23 +96,31 @@ func resolveByName(query string) (*repos.Repo, error) {
 		return nil, err
 	}
 
+	fzfQuery := query
 	if query != "" {
 		candidates := rs.MatchOne(query)
 		if len(candidates) == 1 {
 			return &candidates[0], nil
 		}
+		if len(candidates) == 0 {
+			// 0 matches → prefilling the dead query would show an empty filtered
+			// picker; pass "" so fzf opens on the full browsable repo list. 2+
+			// matches keep the query prefilled to narrow the list.
+			fzfQuery = ""
+		}
 	}
 
 	pickerLines := buildPickerLines(rs)
 
-	selected, err := fzf.Pick(context.Background(), pickerLines, query)
+	selected, err := pickResolve(context.Background(), pickerLines, fzfQuery)
 	if err != nil {
 		if errors.Is(err, proc.ErrNotFound) {
 			return nil, errFzfMissing
 		}
-		// fzf returns exit 130 on Esc/Ctrl-C → treat as cancellation.
-		// Any other failure (non-130 exit, I/O error) surfaces as a real error.
-		if code, ok := proc.ExitCode(err); ok && code == 130 {
+		// fzf exits 130 on Esc/Ctrl-C and 1 when the list is exhausted with no
+		// selectable match — both mean "no repo chosen". Treat both as a quiet
+		// cancellation; any other code (or a non-exit I/O error) is a real failure.
+		if code, ok := proc.ExitCode(err); ok && (code == 130 || code == 1) {
 			return nil, errFzfCancelled
 		}
 		return nil, fmt.Errorf("hop: fzf failed: %w", err)
