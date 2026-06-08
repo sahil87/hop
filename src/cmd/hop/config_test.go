@@ -545,6 +545,48 @@ func TestAddForcedGroupExistingNoAnnouncement(t *testing.T) {
 	}
 }
 
+// TestAddForcedGroupNoNewURLsLeavesConfigUntouched is the regression guard for
+// the empty-forced-group bug: when -g <name> names a missing group but discovery
+// yields zero new URLs (here a recursive walk over a tree with no repos), the
+// group MUST NOT be auto-created, hop.yaml MUST be left byte-for-byte untouched,
+// and no `created group:` line may be printed. The summary still reports
+// "Nothing to add." (R5).
+func TestAddForcedGroupNoNewURLsLeavesConfigUntouched(t *testing.T) {
+	clearConfigEnv(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	hopYaml := filepath.Join(home, ".config", "hop", "hop.yaml")
+	if err := os.MkdirAll(filepath.Dir(hopYaml), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	// No 'vendor' group exists yet.
+	original := "config:\n  code_root: ~/code\nrepos:\n  default: []\n"
+	if err := os.WriteFile(hopYaml, []byte(original), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	// A directory tree with NO git repos — the recursive walk finds nothing.
+	scanRoot := filepath.Join(home, "clients")
+	if err := os.MkdirAll(filepath.Join(scanRoot, "acme"), 0o755); err != nil {
+		t.Fatalf("mkdir scanRoot: %v", err)
+	}
+	withFakeGitRunner(t, fakeURLForDir(t, map[string]string{}))
+
+	_, stderr, err := runArgs(t, "add", "-r", "-g", "vendor", scanRoot)
+	if err != nil {
+		t.Fatalf("add -r -g vendor: %v\nstderr: %s", err, stderr.String())
+	}
+	got := stderr.String()
+	if strings.Contains(got, "created group:") {
+		t.Errorf("must NOT announce 'created group:' when nothing is added; stderr=%q", got)
+	}
+	// hop.yaml must be byte-identical to what we wrote — no empty 'vendor' group.
+	contents, _ := os.ReadFile(hopYaml)
+	if string(contents) != original {
+		t.Errorf("hop.yaml mutated despite nothing to add;\nwant:\n%s\ngot:\n%s", original, contents)
+	}
+}
+
 // TestRecursiveAddForcedGroup verifies -r combined with -g forces every
 // discovered repo into the named (auto-created) group (R1/R5).
 func TestRecursiveAddForcedGroup(t *testing.T) {

@@ -280,7 +280,9 @@ func buildAddPlan(cfg *config.Config, found []scan.Found, opts addOpts, configPa
 // the convention/invented logic entirely. URLs already present anywhere in
 // hop.yaml are dropped (and counted as already-registered skips) so the plan
 // and summary agree with what MergeScan would actually change. In write mode a
-// missing group is created via yamled.EnsureGroup (announced once).
+// missing group is created via yamled.EnsureGroup (announced once) only when
+// there is at least one new URL to append — a discovery that yields nothing new
+// leaves hop.yaml untouched and prints no `created group:` line.
 func buildForcedGroupPlan(cfg *config.Config, found []scan.Found, opts addOpts, configPath string, stderr io.Writer, cmdName string) (yamled.ScanPlan, scanPlanSummary, error) {
 	existingURLs := make(map[string]struct{})
 	groupExists := false
@@ -304,20 +306,24 @@ func buildForcedGroupPlan(cfg *config.Config, found []scan.Found, opts addOpts, 
 		urls = append(urls, f.URL)
 	}
 
-	// Auto-create the group only when we are actually writing and it does not
-	// yet exist (print mode never mutates the file). EnsureGroup is idempotent,
-	// but we gate on groupExists so the `created group:` announcement only
-	// fires when we genuinely created it.
-	if !opts.print && !groupExists {
-		if err := yamled.EnsureGroup(configPath, opts.group); err != nil {
-			fmt.Fprintf(stderr, "%s: %v\n", cmdName, err)
-			return yamled.ScanPlan{}, scanPlanSummary{}, errSilent
-		}
-		fmt.Fprintf(stderr, "created group: %s\n", opts.group)
-	}
-
 	plan := yamled.ScanPlan{}
 	if len(urls) > 0 {
+		// Auto-create the group only when we are actually writing, it does not
+		// yet exist, and there is at least one new URL to append. Gating on
+		// len(urls) avoids materializing an empty group (and announcing
+		// `created group:`) when discovery found nothing new — the target dir
+		// isn't a repo, the recursive walk found zero repos, or everything is
+		// already registered. Print mode never mutates the file. EnsureGroup is
+		// idempotent, but we also gate on groupExists so the announcement only
+		// fires when we genuinely created it.
+		if !opts.print && !groupExists {
+			if err := yamled.EnsureGroup(configPath, opts.group); err != nil {
+				fmt.Fprintf(stderr, "%s: %v\n", cmdName, err)
+				return yamled.ScanPlan{}, scanPlanSummary{}, errSilent
+			}
+			fmt.Fprintf(stderr, "created group: %s\n", opts.group)
+		}
+
 		// A forced group with an explicit user-named target renders as a
 		// flat-list group with no dir override (Flat). This keeps write mode
 		// (where EnsureGroup pre-seeds a flat node) and print mode (where it does
