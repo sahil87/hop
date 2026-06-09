@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -551,5 +552,125 @@ func TestResolveByNameUnclonedRepoBareQueryStillPermissive(t *testing.T) {
 	}
 	if got.Path != expected {
 		t.Errorf("got.Path = %q, want %q (registry-derived)", got.Path, expected)
+	}
+}
+
+// withPickResolve swaps the package-level pickResolve fzf seam for the duration
+// of a test, restoring the original on Cleanup. Mirrors withPickOne.
+func withPickResolve(t *testing.T, fn func(ctx context.Context, lines []string, query string) (string, error)) {
+	t.Helper()
+	prev := pickResolve
+	pickResolve = fn
+	t.Cleanup(func() { pickResolve = prev })
+}
+
+// exit1Error runs a tiny subprocess that exits 1 and returns the resulting
+// *exec.ExitError, so proc.ExitCode classifies it the same way a real fzf
+// "list exhausted, no selectable match" exit would. Mirrors exit130Error in
+// config_rm_test.go.
+func exit1Error(t *testing.T) error {
+	t.Helper()
+	err := exec.Command("sh", "-c", "exit 1").Run()
+	if err == nil {
+		t.Fatal("expected non-nil error from 'exit 1'")
+	}
+	return err
+}
+
+// multiMatchYAML defines two repos whose names share the substring "web", so
+// MatchOne("web") returns 2 candidates and resolveByName falls through to the
+// picker with the query retained. "looo" matches neither (0 candidates).
+const multiMatchYAML = `repos:
+  default:
+    dir: /tmp/test-multi-match
+    urls:
+      - git@github.com:sahil87/webapp.git
+      - git@github.com:sahil87/webhook.git
+`
+
+func TestResolveByNameZeroMatchSuppressesQueryPrefill(t *testing.T) {
+	writeReposFixture(t, multiMatchYAML)
+
+	var capturedQuery string
+	queryCaptured := false
+	withPickResolve(t, func(ctx context.Context, lines []string, query string) (string, error) {
+		capturedQuery = query
+		queryCaptured = true
+		// Return the first piped line so resolveByName completes its map-back.
+		return lines[0], nil
+	})
+
+	// "looo" matches neither webapp nor webhook → 0 candidates → fall through to
+	// the picker with the prefill suppressed.
+	if _, err := resolveByName("looo"); err != nil {
+		t.Fatalf("resolveByName(looo): %v", err)
+	}
+	if !queryCaptured {
+		t.Fatal("picker seam was not invoked for a 0-match query")
+	}
+	if capturedQuery != "" {
+		t.Errorf("0-match query reached picker as %q, want \"\" (prefill suppressed)", capturedQuery)
+	}
+}
+
+func TestResolveByNameMultiMatchRetainsQueryPrefill(t *testing.T) {
+	writeReposFixture(t, multiMatchYAML)
+
+	var capturedQuery string
+	queryCaptured := false
+	withPickResolve(t, func(ctx context.Context, lines []string, query string) (string, error) {
+		capturedQuery = query
+		queryCaptured = true
+		return lines[0], nil
+	})
+
+	// "web" matches both webapp and webhook → 2 candidates → fall through to the
+	// picker with the query retained for narrowing.
+	if _, err := resolveByName("web"); err != nil {
+		t.Fatalf("resolveByName(web): %v", err)
+	}
+	if !queryCaptured {
+		t.Fatal("picker seam was not invoked for a 2+-match query")
+	}
+	if capturedQuery != "web" {
+		t.Errorf("2+-match query reached picker as %q, want %q (prefill retained)", capturedQuery, "web")
+	}
+}
+
+func TestResolveByNameFzfExit1MapsToCancelled(t *testing.T) {
+	writeReposFixture(t, multiMatchYAML)
+
+	withPickResolve(t, func(ctx context.Context, lines []string, query string) (string, error) {
+		// fzf exit 1: list exhausted, no selectable match.
+		return "", exit1Error(t)
+	})
+
+	_, err := resolveByName("looo")
+	if !errors.Is(err, errFzfCancelled) {
+		t.Fatalf("expected errFzfCancelled for fzf exit 1, got %v", err)
+	}
+	if err != nil && strings.Contains(err.Error(), "fzf failed") {
+		t.Errorf("exit 1 leaked a 'fzf failed' wrap: %v", err)
+	}
+}
+
+func TestResolveByNameFzfOtherExitSurfacesError(t *testing.T) {
+	writeReposFixture(t, multiMatchYAML)
+
+	withPickResolve(t, func(ctx context.Context, lines []string, query string) (string, error) {
+		// An exit code other than 130/1 must still be a real failure.
+		err := exec.Command("sh", "-c", "exit 2").Run()
+		if err == nil {
+			t.Fatal("expected non-nil error from 'exit 2'")
+		}
+		return "", err
+	})
+
+	_, err := resolveByName("looo")
+	if errors.Is(err, errFzfCancelled) {
+		t.Fatalf("exit 2 must NOT map to errFzfCancelled, got %v", err)
+	}
+	if err == nil || !strings.Contains(err.Error(), "fzf failed") {
+		t.Errorf("expected a 'fzf failed' wrap for exit 2, got %v", err)
 	}
 }
