@@ -1,0 +1,14 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-06-08T09:55:51Z"}
+{"args":"Task: conform this repo to shll.ai's README-extraction contract. Restructure README.md per Part 1 (head order, tail denylist, absolute image/link URLs, mermaid-\u003eimage) and add docs/site/**/*.md tree per Part 2 (install.md, workflows.md, four closed-set rules). Find hop's row in the directive's per-tool table. Run the Verify checklist. Ship as a single PR. Spec: https://github.com/sahil87/shll.ai/blob/main/docs/specs/readme-extraction-contract.md","cmd":"fab-new","event":"command","ts":"2026-06-08T09:55:51Z"}
+{"delta":"+4.1","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-06-08T09:57:14Z"}
+{"delta":"+0.0","event":"confidence","score":4.1,"trigger":"calc-score","ts":"2026-06-08T09:57:19Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-06-08T09:57:52Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-06-08T09:57:55Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-06-08T10:00:28Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-06-08T10:03:44Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-06-08T10:06:56Z"}
+{"event":"review","result":"passed","ts":"2026-06-08T10:06:56Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-06-08T10:09:04Z"}
+{"action":"enter","driver":"git-pr","event":"stage-transition","stage":"review-pr","ts":"2026-06-08T10:11:16Z"}
+{"cmd":"git-pr-review","event":"command","ts":"2026-06-08T10:12:31Z"}
+{"event":"review","result":"passed","ts":"2026-06-08T10:15:43Z"}

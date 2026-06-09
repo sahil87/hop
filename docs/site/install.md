@@ -1,0 +1,104 @@
+# Installing and setting up hop
+
+A complete walkthrough from "nothing installed" to "`h web<TAB>` cds my shell into webapp." Five steps: install the binary, wire the shell shim, bootstrap `hop.yaml` from your existing clones, sync that config across machines, and keep hop up to date.
+
+For the day-to-day grammar once you're set up, see the [workflows deep-dive](workflows.md).
+
+## 1. Install the binary
+
+### Homebrew (macOS and Linux)
+
+```sh
+brew install sahil87/tap/hop
+```
+
+The formula pulls in [`wt`](https://github.com/sahil87/wt) as a dependency. hop shells out to `wt list --json` to resolve the `<name>/<wt>` worktree suffix, so having `wt` on `PATH` is what makes worktree navigation (`h webapp/feat-x`) and `hop ls --trees` work. Bare `hop webapp` queries never touch `wt` — but you'll want it for the full experience, and brew installs it for you.
+
+### From source
+
+```sh
+git clone https://github.com/sahil87/hop.git
+cd hop
+just install
+```
+
+`just install` builds the binary and copies it to `~/.local/bin/hop`. Make sure that directory is on your `$PATH` (`export PATH="$HOME/.local/bin:$PATH"` in your rc file if it isn't). The build follows the thin-justfile pattern — `just install` delegates to a script under `scripts/`, so there's no hidden build state to manage.
+
+A from-source install does **not** pull in `wt`. If you want worktree navigation, install it separately: `brew install sahil87/tap/wt`, or build it from source the same way.
+
+## 2. Wire the shell shim
+
+This is the step that turns hop from a path-printer into a navigator. A binary cannot change its parent shell's current directory, nor run a command in it — that's a Unix constraint, not a hop limitation. The shim is a tiny shell function that bridges the gap.
+
+Install it once, in your shell's rc file:
+
+```sh
+eval "$(hop shell-init zsh)"   # add to ~/.zshrc
+eval "$(hop shell-init bash)"  # add to ~/.bashrc
+```
+
+`hop shell-init <shell>` prints (and the `eval` installs) three things:
+
+- **the `hop` shell function** — wraps the binary and acts on its dispatch decision (see below);
+- **the `h` alias** — a single-letter shorthand for the `hop` function, so `h web<TAB>` works;
+- **tab completion** — slot-aware: `hop <TAB>` offers subcommands and repo names, `hop webapp <TAB>` offers verbs and tools, `hop webapp/<TAB>` offers that repo's worktree names.
+
+### How dispatch works (why the shim is safe)
+
+For each invocation, the `hop` function asks the binary how to dispatch (an internal `hop --shim-plan …` call) and gets back exactly one of three answers:
+
+1. **cd here** — for `hop <name>` / `hop <name> cd`, the function changes your shell's cwd;
+2. **run this in the parent shell** — for `hop <name> <cmd>`, the function cds into the repo, runs your already-typed words in your shell (so your aliases and functions resolve), then returns you to where you started;
+3. **pass through to the binary** — for subcommands like `hop ls` or `hop add`, the function just forwards to the binary.
+
+The shim never `eval`s the binary's output — it runs the words you already typed. Because the binary owns the classification, the shim hard-codes no subcommand names and can't drift out of sync with the binary as new subcommands are added.
+
+If you ever run hop without the shim installed, navigation prints a hint pointing you back to `eval "$(hop shell-init zsh)"`, with `cd "$(command hop <name> where)"` as the manual workaround.
+
+### One-shot wiring for multiple sahil87 tools
+
+If you use several tools from the toolkit (hop, `wt`, and friends), you don't have to add an `eval` line per tool. [`shll shell-install`](https://github.com/sahil87/shll) wires every installed tool's shell integration and completions into your rc file in a single command.
+
+## 3. First run: bootstrap `hop.yaml` from disk
+
+You don't write `hop.yaml` by hand. If you already have repos cloned somewhere, point hop at them and it builds the config for you:
+
+```sh
+hop add -r ~/code          # walk ~/code, read each repo's git remote, populate hop.yaml
+hop add -r -p ~/code       # preview only: print what it would write, change nothing
+```
+
+`hop add -r` writes by default and auto-creates the config on a fresh machine — there's no separate "init" step. Use `-p` (preview) first if you want to see the plan before committing to it.
+
+The walk defaults to depth 3; override with `--depth N`. For each git repo it finds, it inspects the `origin` remote and **auto-derives a group**:
+
+- repos whose on-disk path matches the `<code_root>/<org>/<name>` convention land in the `default` group;
+- repos in non-convention layouts get a group named after their parent directory.
+
+Pass `-g <name>` to force everything into one named group instead (auto-created if it doesn't exist). Worktrees, submodules, bare repos, and repos with no remote are skipped.
+
+Prefer to start from a hand-edited template? `hop config init` writes an annotated `hop.yaml` you can fill in yourself.
+
+## 4. Where `hop.yaml` lives, and syncing it across machines
+
+The config lives at `~/.config/hop/hop.yaml`. Confirm the resolved path any time with:
+
+```sh
+hop config where
+```
+
+hop keeps **no** database or cache — every invocation re-reads this YAML and re-checks the disk. That's what makes the dotfiles pattern work: keep `hop.yaml` in your dotfiles repo and symlink `~/.config/hop/hop.yaml` to it. Your entire repo directory then follows you between laptops, and a fresh machine is one `git clone` of your dotfiles away from a populated hop.
+
+## 5. Keeping hop up to date
+
+```sh
+hop update
+```
+
+When hop was installed via Homebrew, `hop update` self-upgrades through brew. When it was installed from source or a release tarball, it prints a hint (re-run `just install`, or grab the latest release) and exits without invoking brew — so it never fights your install method.
+
+## Next steps
+
+You're set up. Head to the [workflows deep-dive](workflows.md) for the one grammar (`hop <selection> <action>`), navigation, running commands inside any repo, and batch git ops across groups.
+
+For the canonical command contract and config schema, see the source-of-truth specs: [`cli-surface.md`](https://github.com/sahil87/hop/blob/main/docs/specs/cli-surface.md) and [`config-resolution.md`](https://github.com/sahil87/hop/blob/main/docs/specs/config-resolution.md).

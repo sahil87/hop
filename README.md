@@ -79,6 +79,8 @@ just install
 
 Builds the binary and copies it to `~/.local/bin/hop`. Make sure that directory is on your `$PATH`.
 
+> **Fuller guide:** [Installing and setting up hop](docs/site/install.md) — Homebrew & from-source, shell integration in depth, and first-run bootstrap.
+
 ## Shell integration
 
 The shell shim is what makes `hop <name>` actually `cd` your shell. Install it once:
@@ -209,6 +211,8 @@ Tab completion knows which slot you're in: `hop <TAB>` offers subcommands + repo
 
 Under the hood, the shell function asks the binary how to dispatch (`hop --shim-plan …`, an internal call) and gets back one of three answers — cd here, run this in the parent shell, or pass through to the binary. The shim never `eval`s binary output; it runs your already-typed words. Because the binary owns the classification, the shim hard-codes no subcommand names and can't drift out of sync with the binary.
 
+> **Deep-dive:** [hop workflows](docs/site/workflows.md) — the three jobs, worktree workflows, the shim-vs-binary dispatch model, and gotchas, with worked examples.
+
 ## Config schema
 
 `hop.yaml` is grouped by named sections under `repos:`, with optional global `config:` fields:
@@ -241,6 +245,8 @@ A flat list (`default` above) uses convention: each URL lands at `<code_root>/<o
 
 ## Reference
 
-- `hop --help` — full subcommand listing
-- [`docs/specs/cli-surface.md`](docs/specs/cli-surface.md) — canonical CLI contract (every subcommand, exit codes, stdout/stderr conventions, every behavioral scenario)
-- [`docs/specs/config-resolution.md`](docs/specs/config-resolution.md) — config search order and `hop.yaml` schema
+- `hop --help` — full subcommand listing (rendered online at [shll.ai/tools/hop/commands](https://shll.ai/tools/hop/commands/))
+- [Install guide](docs/site/install.md) — install, shell integration, and first-run bootstrap in depth
+- [Workflows deep-dive](docs/site/workflows.md) — the grammar, daily workflows, the shim model, and gotchas
+- [`docs/specs/cli-surface.md`](https://github.com/sahil87/hop/blob/main/docs/specs/cli-surface.md) — canonical CLI contract (every subcommand, exit codes, stdout/stderr conventions, every behavioral scenario)
+- [`docs/specs/config-resolution.md`](https://github.com/sahil87/hop/blob/main/docs/specs/config-resolution.md) — config search order and `hop.yaml` schema
