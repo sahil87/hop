@@ -1,5 +1,20 @@
 # Archive Index
 
+- **260608-w2bj-unify-recursive-add** — Unify Recursive Repo Registration onto `hop add`
+- **260608-gyo0-grammar-shim-refactor** — Grammar + Shim Refactor
+- **260608-8v9h-friendly-no-match-resolution** — Friendlier No-Match DX for Repo Resolution
+- **260608-1fsv-readme-docs-site-crosslinks** — README → docs/site cross-links + command-reference link
+- **260608-0qwc-shll-readme-contract** — Conform repo to shll.ai README-extraction contract
+- **260607-y1kf-ci-test-gate** — CI Test Gate
+- **260605-xgmu-fix-config-location** — Fix config location, remove env-var overrides
+- **260605-c92v-fix-relative-dir-args** — Fix relative-dir handling in `hop add` / `hop config scan`
+- **260605-44hm-auto-init-on-write** — Auto-init hop.yaml on write-commands
+- **260603-mw9h-hop-add-rm-top-level** — Promote `add` and `rm` to top-level commands
+- **260603-g56l-teardown-shllai-push-wiring** — Tear down shll.ai help-dump push wiring
+- **260602-n1me-config-add-rm-folders** — Config Add / Remove Folders
+- **260602-jr5f-help-dump-shllai-json** — Help-dump CLI tree → help/hop.json → PR into shll.ai
+- **260531-dx50-skip-brew-update-flag** — Add --skip-brew-update flag to update command
+- **260516-odle-eager-worktree-completion** — Eager Worktree-Aware Tab Completion
 - **260516-7eab-worktree-aware-path-resolution** — Extended repo-arg grammar with optional /<wt-name> suffix (e.g., 'hop outbox/feat-x cd') so every existing verb inherits worktree-awareness. Folds worktree visibility into 'hop ls --trees'. No DB, no hop.yaml changes.
 - **260510-nzb0-auto-commit-on-sync** — Made 'hop sync' auto-commit dirty trees before pull/push (git add --all :/, then commit with generated message, then pull --rebase, then push). Replaces the user's xpush bash helper; pull/push subcommands remain unchanged.
 - **260508-rdgf-add-hop-push-subcommand** — Added 'hop push <name-or-group>' subcommand mirroring hop pull/sync. Publishes commits without re-pulling. Reuses runBatch, resolveTargets, and per-repo status-line conventions from the pull/sync pair.
