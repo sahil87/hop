@@ -110,6 +110,15 @@ func resolveByName(query string) (*repos.Repo, error) {
 		}
 	}
 
+	// TTY guard: fzf needs a controlling terminal to pick with. With no TTY
+	// (an agent or CI script), fail fast with a distinct sentinel instead of
+	// spawning fzf and getting a confusing "cancelled" (exit 130). This single
+	// guard point covers bare `hop`, ambiguous/zero-match named resolution, and
+	// `hop clone`/`hop rm <name>` with no usable single match (intake Item 3).
+	if !isTTY() {
+		return nil, errNoTTY
+	}
+
 	pickerLines := buildPickerLines(rs)
 
 	selected, err := pickResolve(context.Background(), pickerLines, fzfQuery)

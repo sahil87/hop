@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 )
@@ -82,6 +83,20 @@ const cdHint = `hop: 'cd' is shell-only. Add 'eval "$(hop shell-init zsh)"' to y
 // can't honor it — it points the user at the shim. %s is the would-be tool name.
 const toolFormHintFmt = `hop: '%s' is not a hop verb (cd, where, open, pull, push, sync). Tool-form runs in your shell — install the shim: eval "$(hop shell-init zsh)"`
 
+// shellOnlyHintErr builds the exit-2 usage error for the shell-only forms
+// (bare-name cd, the `cd` verb, tool-form). When HOP_WRAPPER=1 the shim is known
+// present, so the "install the shim" hint is redundant noise — we suppress the
+// hint TEXT but KEEP the exit-2 code, because the invocation is still a form the
+// binary genuinely cannot fulfill on its own (cd/tool-form run in the parent
+// shell). Mirrors wt's WT_WRAPPER pattern in apps.go (suppress the hint, not the
+// error). An empty msg makes translateExit exit 2 without printing anything.
+func shellOnlyHintErr(hint string) *errExitCode {
+	if os.Getenv("HOP_WRAPPER") == "1" {
+		return &errExitCode{code: 2}
+	}
+	return &errExitCode{code: 2, msg: hint}
+}
+
 func newRootCmd() *cobra.Command {
 	var all bool
 	cmd := &cobra.Command{
@@ -142,7 +157,7 @@ func runRoot(cmd *cobra.Command, args []string, all bool) error {
 		if isConfiguredGroupName(args[0]) {
 			return runPluralSelection(cmd, args[0], nil)
 		}
-		return &errExitCode{code: 2, msg: bareNameHint}
+		return shellOnlyHintErr(bareNameHint)
 	}
 
 	selection, action := args[0], args[1]
@@ -156,7 +171,7 @@ func runRoot(cmd *cobra.Command, args []string, all bool) error {
 	case "where":
 		return resolveAndPrint(cmd, selection)
 	case "cd":
-		return &errExitCode{code: 2, msg: cdHint}
+		return shellOnlyHintErr(cdHint)
 	case "open":
 		if len(args) > 2 {
 			return &errExitCode{code: 2, msg: fmt.Sprintf("hop: '%s open' takes no extra arguments", selection)}
@@ -165,7 +180,7 @@ func runRoot(cmd *cobra.Command, args []string, all bool) error {
 	case "pull", "push", "sync":
 		return runBatchVerb(cmd, action, selection, false)
 	default:
-		return &errExitCode{code: 2, msg: fmt.Sprintf(toolFormHintFmt, action)}
+		return shellOnlyHintErr(fmt.Sprintf(toolFormHintFmt, action))
 	}
 }
 

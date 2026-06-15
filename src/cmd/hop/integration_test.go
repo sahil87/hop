@@ -69,6 +69,10 @@ func TestIntegrationCdHint(t *testing.T) {
 	bin := buildBinary(t)
 	// Repo-verb grammar: `hop <name> cd` (2 args, $2=cd) is the new error path.
 	cmd := exec.Command(bin, "anything", "cd")
+	// Clear HOP_WRAPPER so the hint is NOT suppressed (a dev with the hop shim
+	// installed would otherwise inherit HOP_WRAPPER=1 — intake Item 4). An empty
+	// assignment appended last overrides any inherited value.
+	cmd.Env = append(os.Environ(), "HOP_WRAPPER=")
 	out, err := cmd.CombinedOutput()
 	if err == nil {
 		t.Fatalf("expected non-zero exit, got nil err. output: %s", out)

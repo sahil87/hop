@@ -26,8 +26,18 @@ import (
 //     and `case` on the first line over the 3 protocol keywords:
 //     CD <path>            → cd -- <path>                  (`hop webapp`, `hop webapp cd`)
 //     RUN_IN_PARENT <path> → cd -- <path>; shift; "$@"; cd back (`hop webapp git pull`, `hop webapp code .`)
-//     PASSTHROUGH          → _hop_passthrough "$@"         (binary owns it: add/rm/clone/ls/
-//     config/update/shell-init/where/open/pull/push/sync/--help/--version/...)
+//     PASSTHROUGH          → run the binary with the WT_CD_FILE side-channel
+//     (binary owns it: add/rm/clone/ls/config/update/
+//     shell-init/where/open/pull/push/sync/--help/...)
+//
+// SELF-CONTAINED (intake 1x1u, Item 1): the PASSTHROUGH body is inlined DIRECTLY
+// into hop()'s case arm rather than calling a sibling `_hop_passthrough()`
+// helper. A dispatcher that depends on a separately-defined top-level function
+// is fragile to per-function shell snapshotting — Claude Code's shell-snapshot
+// captured hop() but not its sibling, so every PASSTHROUGH command died with
+// `_hop_passthrough: command not found`. Inlining makes posixInit emit a single
+// capturable hop() unit (plus the h() alias) that is provably immune to partial
+// capture.
 //
 // SECURITY (Constitution I): the shim runs the user's already-parsed words
 // ("$@") — never `eval` of binary output. The binary emits only the fixed
@@ -40,9 +50,15 @@ import (
 // collapses the former three handoffs (where=stdout, open=WT_CD_FILE,
 // clone=conditional-stdout) into ONE channel. `where` still prints to stdout for
 // scripts; `open`/`clone <url>` route their cd-target through WT_CD_FILE.
+//
+// HOP_WRAPPER=1 is exported so the binary can detect that the shim is present
+// and suppress the shell-only hints (bare-name/cd/tool-form) it would otherwise
+// print on the direct-binary path (mirrors wt's WT_WRAPPER — intake Item 4).
 const posixInit = `# hop shell integration — emit via: eval "$(hop shell-init <shell>)"
 # Installs: hop function (a logic-free interpreter of the binary's --shim-plan
 # protocol), h alias, completion. Hard-codes zero subcommand names.
+
+export HOP_WRAPPER=1
 
 hop() {
   case "$1" in
@@ -74,7 +90,29 @@ hop() {
       return $hop_rc
       ;;
     PASSTHROUGH)
-      _hop_passthrough "$@"
+      # Inlined unified cd side-channel via WT_CD_FILE (inlined so hop() is a
+      # single self-contained capturable unit — see SELF-CONTAINED above).
+      # WT_CD_FILE points at a temp file; commands that resolve a cd-target write
+      # the path there (today: ` + "`wt open`" + `'s "Open here", and ` + "`hop clone <url>`" + `). We
+      # cd there after the command exits if the file is non-empty. We do NOT
+      # capture stdout via $(...) — that would swallow interactive menus (wt) and
+      # block on stdin. Commands that don't write the file (where, ls, config, ...)
+      # leave it empty and no cd occurs.
+      local cdfile target rc
+      cdfile="$(mktemp -t hop-cd.XXXXXX)" || { command hop "$@"; return $?; }
+      WT_CD_FILE="$cdfile" command hop "$@"
+      rc=$?
+      target=""
+      if [[ -s "$cdfile" ]]; then
+        target="$(cat "$cdfile")"
+      fi
+      rm -f "$cdfile"
+      if (( rc != 0 )); then
+        return $rc
+      fi
+      if [[ -n "$target" ]]; then
+        cd -- "$target"
+      fi
       ;;
     *)
       # Defensive: an unrecognized plan (e.g. a future protocol keyword reaching
@@ -82,31 +120,6 @@ hop() {
       command hop "$@"
       ;;
   esac
-}
-
-# _hop_passthrough runs the binary while providing a unified cd side-channel.
-# It points WT_CD_FILE at a temp file; commands that resolve a cd-target write
-# the path there (today: ` + "`wt open`" + `'s "Open here", and ` + "`hop clone <url>`" + `). The
-# shim cds there after the command exits if the file is non-empty. We do NOT
-# capture stdout via $(...) — that would swallow interactive menus (wt) and
-# block on stdin. Commands that don't write the file (where, ls, config, ...)
-# leave it empty and no cd occurs.
-_hop_passthrough() {
-  local cdfile target rc
-  cdfile="$(mktemp -t hop-cd.XXXXXX)" || { command hop "$@"; return $?; }
-  WT_CD_FILE="$cdfile" command hop "$@"
-  rc=$?
-  target=""
-  if [[ -s "$cdfile" ]]; then
-    target="$(cat "$cdfile")"
-  fi
-  rm -f "$cdfile"
-  if (( rc != 0 )); then
-    return $rc
-  fi
-  if [[ -n "$target" ]]; then
-    cd -- "$target"
-  fi
 }
 
 h() { hop "$@"; }
