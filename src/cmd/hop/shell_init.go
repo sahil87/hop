@@ -27,8 +27,8 @@ import (
 //     CD <path>            → cd -- <path>                  (`hop webapp`, `hop webapp cd`)
 //     RUN_IN_PARENT <path> → cd -- <path>; shift; "$@"; cd back (`hop webapp git pull`, `hop webapp code .`)
 //     PASSTHROUGH          → run the binary with the WT_CD_FILE side-channel
-//                            (binary owns it: add/rm/clone/ls/config/update/
-//                            shell-init/where/open/pull/push/sync/--help/...)
+//     (binary owns it: add/rm/clone/ls/config/update/
+//     shell-init/where/open/pull/push/sync/--help/...)
 //
 // SELF-CONTAINED (intake 1x1u, Item 1): the PASSTHROUGH body is inlined DIRECTLY
 // into hop()'s case arm rather than calling a sibling `_hop_passthrough()`
