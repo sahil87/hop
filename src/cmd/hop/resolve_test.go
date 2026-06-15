@@ -33,6 +33,7 @@ func TestPathSubcommandRemoved(t *testing.T) {
 }
 
 func TestWhereSubcommandRemoved(t *testing.T) {
+	t.Setenv("HOP_WRAPPER", "") // ensure the tool-form hint is not suppressed
 	writeReposFixture(t, singleRepoYAML)
 
 	// `hop where <name>` was removed in favor of `hop <name> where` (repo-verb grammar).
@@ -50,6 +51,7 @@ func TestWhereSubcommandRemoved(t *testing.T) {
 }
 
 func TestCdSubcommandRemoved(t *testing.T) {
+	t.Setenv("HOP_WRAPPER", "") // ensure the tool-form hint is not suppressed
 	writeReposFixture(t, singleRepoYAML)
 
 	// `hop cd <name>` was removed. Same grammar — $1=cd, $2=hop, otherwise → tool-form hint.
@@ -562,6 +564,80 @@ func withPickResolve(t *testing.T, fn func(ctx context.Context, lines []string, 
 	prev := pickResolve
 	pickResolve = fn
 	t.Cleanup(func() { pickResolve = prev })
+}
+
+// TestResolveByNameNoTTYReturnsSentinelBeforeFzf asserts that with no TTY,
+// resolveByName returns errNoTTY (the distinct no-TTY sentinel) BEFORE spawning
+// fzf — the pickResolve seam must never be invoked (intake Item 3). "looo"
+// matches neither repo (0 candidates), the case that would otherwise fall
+// through to the picker.
+func TestResolveByNameNoTTYReturnsSentinelBeforeFzf(t *testing.T) {
+	writeReposFixture(t, multiMatchYAML)
+	withIsTTY(t, false)
+	withPickResolve(t, func(ctx context.Context, lines []string, query string) (string, error) {
+		t.Fatalf("pickResolve invoked with no TTY; want errNoTTY before fzf (lines=%v)", lines)
+		return "", nil
+	})
+
+	_, err := resolveByName("looo")
+	if !errors.Is(err, errNoTTY) {
+		t.Fatalf("expected errNoTTY, got %v", err)
+	}
+}
+
+// TestResolveByNameBareNoTTYReturnsSentinel covers the bare-`hop` empty-query
+// path (which goes straight to the picker) under no TTY.
+func TestResolveByNameBareNoTTYReturnsSentinel(t *testing.T) {
+	writeReposFixture(t, multiMatchYAML)
+	withIsTTY(t, false)
+	withPickResolve(t, func(ctx context.Context, lines []string, query string) (string, error) {
+		t.Fatalf("pickResolve invoked with no TTY on bare query; want errNoTTY (lines=%v)", lines)
+		return "", nil
+	})
+
+	if _, err := resolveByName(""); !errors.Is(err, errNoTTY) {
+		t.Fatalf("expected errNoTTY for bare no-TTY query, got %v", err)
+	}
+}
+
+// TestResolveByNameSingleMatchNoTTYStillResolves asserts the no-TTY guard does
+// NOT fire when a unique substring match short-circuits before fzf — agents can
+// still resolve an unambiguous name without a terminal.
+func TestResolveByNameSingleMatchNoTTYStillResolves(t *testing.T) {
+	repoDir := makeClonedRepoFixture(t, "webapp")
+	withIsTTY(t, false)
+	withPickResolve(t, func(ctx context.Context, lines []string, query string) (string, error) {
+		t.Fatalf("pickResolve invoked for a unique match; want short-circuit (lines=%v)", lines)
+		return "", nil
+	})
+
+	got, err := resolveByName("webapp")
+	if err != nil {
+		t.Fatalf("unique match under no TTY should resolve, got %v", err)
+	}
+	if got.Path != repoDir {
+		t.Errorf("got.Path = %q, want %q", got.Path, repoDir)
+	}
+}
+
+// TestNoTTYTranslatesToExit3 asserts errNoTTY maps to exit code 3 (distinct from
+// 130 fzf-cancel) with the no-TTY hint on stderr (intake Item 3, assumption #8).
+func TestNoTTYTranslatesToExit3(t *testing.T) {
+	if code := translateExit(errNoTTY); code != 3 {
+		t.Fatalf("translateExit(errNoTTY) = %d, want 3", code)
+	}
+}
+
+// TestShimResolveErrNoTTYReturns3 asserts the --shim-plan path mirrors
+// translateExit: errNoTTY → exit 3 with the no-TTY hint on stderr.
+func TestShimResolveErrNoTTYReturns3(t *testing.T) {
+	var buf strings.Builder
+	if code := shimResolveErr(&buf, errNoTTY); code != 3 {
+		t.Fatalf("shimResolveErr(errNoTTY) = %d, want 3", code)
+	}
+	if !strings.Contains(buf.String(), noTTYHint) {
+		t.Errorf("expected noTTYHint on stderr, got %q", buf.String())
+	}
 }
 
 // exit1Error runs a tiny subprocess that exits 1 and returns the resulting

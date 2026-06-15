@@ -367,6 +367,40 @@ func TestTopLevelRmStaleWithNameIsUsageError(t *testing.T) {
 	}
 }
 
+// TestRmNoTTYReturnsSentinelBeforeFzf asserts the no-name `hop rm` picker path
+// returns errNoTTY (→ exit 3 via translateExit) with no TTY, never spawning fzf
+// (intake Item 3 — single guard point in pickRepo). The pickOne fake fails the
+// test if invoked.
+func TestRmNoTTYReturnsSentinelBeforeFzf(t *testing.T) {
+	yaml := `repos:
+  default:
+    - git@github.com:sahil87/hop.git
+    - git@github.com:sahil87/wt.git
+`
+	path := writeReposFixture(t, yaml)
+	original, _ := os.ReadFile(path)
+
+	withIsTTY(t, false)
+	withPickOne(t, func(ctx context.Context, lines []string, query string) (string, error) {
+		t.Fatalf("picker invoked with no TTY; want errNoTTY before fzf (lines=%v)", lines)
+		return "", nil
+	})
+
+	_, _, err := runArgs(t, "rm")
+	if !errors.Is(err, errNoTTY) {
+		t.Fatalf("expected errNoTTY, got %v", err)
+	}
+	// errNoTTY maps to the distinct exit code 3, not 130 (fzf cancel).
+	if code := translateExit(err); code != 3 {
+		t.Errorf("translateExit = %d, want 3", code)
+	}
+	// File unchanged — no removal on a no-TTY refusal.
+	got, _ := os.ReadFile(path)
+	if string(got) != string(original) {
+		t.Errorf("hop.yaml modified on no-TTY refusal; got:\n%s", got)
+	}
+}
+
 func TestConfigRmFzfMissing(t *testing.T) {
 	yaml := `repos:
   default:

@@ -217,6 +217,12 @@ func staleRepos(rs repos.Repos) repos.Repos {
 // in error wording. Returns errFzfMissing / errFzfCancelled (translated by
 // callers).
 func pickRepo(cmdName string, rs repos.Repos) (*repos.Repo, error) {
+	// TTY guard: the no-name `hop rm` / `hop config rm` picker needs a terminal.
+	// With no TTY, fail fast with the distinct errNoTTY sentinel instead of
+	// spawning fzf (intake Item 3 — single guard point per fzf seam).
+	if !isTTY() {
+		return nil, errNoTTY
+	}
 	lines := buildPickerLines(rs)
 	selected, err := pickOne(context.Background(), lines, "")
 	if err != nil {

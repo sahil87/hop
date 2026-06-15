@@ -41,9 +41,10 @@ func main() {
 // translateExit maps errors returned from RunE to the spec's exit codes.
 // Exit codes per docs/specs/cli-surface.md §"Exit Code Conventions":
 //
-//	0 success, 1 application error, 2 usage error, 130 user cancelled.
+//	0 success, 1 application error, 2 usage error, 3 no TTY, 130 user cancelled.
 //
 // Sentinels:
+//   - errNoTTY         → 3 (interactive selection requested with no terminal)
 //   - errFzfCancelled  → 130
 //   - errSilent        → 1 (caller already wrote stderr)
 //   - errExitCode{...} → custom code (used by `hop cd` to exit 2, `shell-init` for 2, etc.)
@@ -59,6 +60,10 @@ func translateExit(err error) int {
 			fmt.Fprintln(os.Stderr, withCode.msg)
 		}
 		return withCode.code
+	}
+	if errors.Is(err, errNoTTY) {
+		fmt.Fprintln(os.Stderr, noTTYHint)
+		return 3
 	}
 	if errors.Is(err, errFzfCancelled) {
 		return 130

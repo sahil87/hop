@@ -174,6 +174,10 @@ func shimResolveErr(errOut io.Writer, err error) int {
 		fmt.Fprintln(errOut, fzfMissingHint)
 		return 1
 	}
+	if errors.Is(err, errNoTTY) {
+		fmt.Fprintln(errOut, noTTYHint)
+		return 3
+	}
 	if errors.Is(err, errFzfCancelled) {
 		return 130
 	}

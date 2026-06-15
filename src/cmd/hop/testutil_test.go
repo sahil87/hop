@@ -11,6 +11,27 @@ import (
 	"github.com/sahil87/hop/internal/config"
 )
 
+// TestMain forces the isTTY seam to report an interactive terminal for the whole
+// package by default. The test binary runs with stdin redirected (not a TTY), so
+// without this every picker-exercising test would short-circuit on the no-TTY
+// guard (intake Item 3). Production's default for an interactive user IS a TTY,
+// so defaulting to true models the normal case; the dedicated no-TTY tests opt
+// out via withIsTTY(t, false).
+func TestMain(m *testing.M) {
+	isTTY = func() bool { return true }
+	os.Exit(m.Run())
+}
+
+// withIsTTY swaps the package-level isTTY seam for the duration of a test,
+// restoring the original on Cleanup. Lets tests simulate a non-interactive
+// (no-TTY) environment without allocating a PTY.
+func withIsTTY(t *testing.T, v bool) {
+	t.Helper()
+	prev := isTTY
+	isTTY = func() bool { return v }
+	t.Cleanup(func() { isTTY = prev })
+}
+
 // loadConfigForTest resolves the fixed config path via config.Resolve and
 // parses it via config.Load, fataling on failure. Used by tests that need direct
 // access to the parsed *config.Config (e.g., to exercise group-name predicates).

@@ -6,10 +6,10 @@ How the Go source tree is organized for the `hop` binary. Module path is `github
 
 ```
 src/
-├── go.mod                        # module github.com/sahil87/hop, go 1.22
+├── go.mod                        # module github.com/sahil87/hop, go 1.22; deps cobra, yaml.v3, golang.org/x/term
 ├── go.sum
 ├── cmd/hop/                      # one cobra entrypoint (renamed from cmd/repo/)
-│   ├── main.go                   # entrypoint + translateExit + extractShimPlan (pre-cobra --shim-plan dispatch)
+│   ├── main.go                   # entrypoint + translateExit (incl. errNoTTY→3) + extractShimPlan (pre-cobra --shim-plan dispatch)
 │   ├── root.go                   # newRootCmd, rootLong help text, AddCommand wiring, runRoot (selection-first grammar) + runPluralSelection
 │   ├── shim_plan.go              # hidden --shim-plan classifier — runShimPlan/classifySingular/classifyPlural/emitCD/emitRunInParent, protocol keyword consts, batchVerbs set, isKnownSubcommand/isConfiguredGroupName
 │   ├── batch_verb.go             # runBatchVerb — selection-first entry for the pull/push/sync action tokens; resolveTargets → existing pull/push/sync runners
@@ -20,7 +20,8 @@ src/
 │   ├── push.go                   # pushSingle/pushBatch/pushOne (runner logic; cobra factory removed in gyo0)
 │   ├── sync.go                   # syncSingle/syncBatch/syncOne + mentionsConflict + defaultSyncCommitMessage (runner logic; cobra factory removed in gyo0)
 │   ├── open.go                   # runOpen — execs `wt open <path>` (PASSTHROUGH passthrough; shim owns the cd-handoff)
-│   ├── shell_init.go             # posixInit (shared zsh+bash protocol-interpreter shim, hard-codes zero subcommand names) + _hop_passthrough + cobra GenZshCompletion / GenBashCompletionV2 at runtime
+│   ├── shell_init.go             # posixInit (shared zsh+bash protocol-interpreter shim, hard-codes zero subcommand names) — a SINGLE self-contained hop() (PASSTHROUGH body inlined; no _hop_passthrough sibling), exports HOP_WRAPPER=1; + cobra GenZshCompletion / GenBashCompletionV2 at runtime
+│   ├── tty.go                    # isTTY seam (term.IsTerminal on stdin), errNoTTY sentinel, noTTYHint stderr line (change 1x1u — agent/non-interactive support)
 │   ├── config.go                 # config parent + nested init/where/scan/print factories; also wires the HIDDEN config add/config rm aliases
 │   ├── config_scan.go            # shared plan-building helpers for `hop add`: validateConfigDir, buildScanPlan, slugify, conflict resolution, scanPlanSummary (the `config scan` cobra command was deleted in w2bj; helpers retained)
 │   ├── config_add.go             # canonical `hop add <dir>` (newAddCmd) + hidden alias `hop config add` (newConfigAddCmd), both backed by the shared runAdd(cmd, cmdName, arg, opts) — flags -r/-p/--depth/-g; single-dir (scan.ClassifyOne) or recursive (scan.Walk) discovery + buildScanPlan/buildForcedGroupPlan + MergeScan/RenderScan; addPrintHeader/emitAddSummary
@@ -65,6 +66,7 @@ src/
 | Go version | `1.22` |
 | CLI framework | `github.com/spf13/cobra` v1.8.1 |
 | YAML library | `gopkg.in/yaml.v3` |
+| TTY detection | `golang.org/x/term` v0.27.0 (+ indirect `golang.org/x/sys` v0.28.0) — added in change `1x1u`; pins mirror the sibling `idea`. The `go` directive was deliberately kept at `1.22` (term v0.27.0 builds clean against it; no bump). |
 | Tests | Adjacent to source (`config.go` + `config_test.go`) |
 | Test fixtures | `testdata/` next to the tests that use them (per-package, not centralized) |
 | `internal/<pkg>/` shape | Flat — no nested sub-packages |
@@ -162,9 +164,21 @@ The new files carry only the classifier (`shim_plan.go`) and the action-token di
 
 The shim hard-codes **zero** subcommand names. The binary's `isKnownSubcommand` (`shim_plan.go`) walks the live `newRootCmd().Commands()`, so the subcommand list has exactly one source of truth (cobra registration). This is the structural fix for the "stale shim" bug class — an already-open interactive shell can no longer drift out of sync with the binary's subcommand set, because the shim branches only on the fixed 3-keyword protocol, never on subcommand names. Future changes that add/remove/promote subcommands need no shim change.
 
+### Design Decision: `posixInit` is a single self-contained `hop()` — partial-capture immunity (change `1x1u`)
+
+`posixInit` now emits **one** top-level shell function, `hop()`, with the PASSTHROUGH cd side-channel body (the `WT_CD_FILE` mktemp/`-s`/`cd`/`rm -f` dance) **inlined directly** into its `PASSTHROUGH)` case arm (`shell_init.go`). The previously-standalone `_hop_passthrough()` sibling function was removed.
+
+**Why this is a fix, not a refactor.** This addresses a NEW facet of the "stale shim" bug class — not name-drift (fixed above), but **partial capture**. Claude Code's shell-snapshot mechanism captures shell functions per-function; it captured `hop()` but NOT its sibling `_hop_passthrough()`. Every PASSTHROUGH command (`where`, `ls`, `add`, `rm`, `clone`, `config`, `pull`/`push`/`sync`, `--help`, `--version`, …) then died with `_hop_passthrough: command not found` — even though the binary, config, and resolution logic were correct the whole time. A dispatcher that depends on a separately-defined top-level sibling is fragile to per-function snapshotting. Inlining is the only form **provably immune** to partial capture: there is no second definition object for a snapshotter to drop, and it matches the file's existing "logic-free interpreter" framing. (Nesting `_hop_passthrough` inside `hop()` was rejected — a nested function is still a separate definition object a snapshotter could in principle split.) The inlined body keeps the `WT_CD_FILE` semantics verbatim, so the unified cd side-channel (`open`/`clone <url>` handoff) is unchanged. The `__complete*` arm, `CD`/`RUN_IN_PARENT` arms, defensive `*)` fallback, and the `h()` alias are all unchanged. This is the second structural fix to the "stale shim" bug class (the first — shim/binary name-drift — was change `gyo0`'s zero-hard-coded-subcommands shim); see [cli/agent-non-interactive-usage](../cli/agent-non-interactive-usage.md) for how this ties into the broader agent contract.
+
+### `tty.go` — TTY seam + no-TTY sentinel (change `1x1u`)
+
+New file. Houses the package-level `var isTTY = func() bool { return term.IsTerminal(int(os.Stdin.Fd())) }` seam (swappable in tests via `withIsTTY` / a `TestMain` default of `true` in `testutil_test.go`, since the test binary runs with stdin redirected), the `errNoTTY` sentinel, and the `noTTYHint` stderr constant. The seam mirrors `idea`'s `internal/idea.IsTTY` and hop's own package-level seam idiom (`pickResolve`, `pickOne`, `listWorktrees`). It keys on **stdin** (not stderr) because fzf reads its candidate list from stdin and needs a real terminal to pick with. Consumed by `resolve.go::resolveByName` (before `pickResolve`) and `config_rm.go::pickRepo` (before `pickOne`); `errNoTTY` maps to exit 3 in `main.go::translateExit` and `shim_plan.go::shimResolveErr`. See [cli/match-resolution](../cli/match-resolution.md) and [cli/agent-non-interactive-usage](../cli/agent-non-interactive-usage.md).
+
 ## Cross-references
 
 - CLI grammar, `--shim-plan` protocol, shim shape: [cli/subcommands](../cli/subcommands.md)
+- Agent / non-interactive contract (self-contained shim, `--json`, exit 3, `HOP_WRAPPER`): [cli/agent-non-interactive-usage](../cli/agent-non-interactive-usage.md)
+- Match resolution + the TTY guard on fzf paths: [cli/match-resolution](../cli/match-resolution.md)
 - Wrapper boundaries (`internal/proc`, `internal/fzf`, `internal/yamled`, `internal/scan` separation): [wrapper-boundaries](wrapper-boundaries.md)
 - `hop add` behavior (single-dir + recursive `-r`), classification rules, group assignment: [config/add-register](../config/add-register.md)
 - Build pipeline: [build/local](../build/local.md)

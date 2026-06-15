@@ -24,8 +24,9 @@ func emitZsh(t *testing.T) string {
 // machinery contains its own `eval` calls and `_describe` plumbing that are NOT
 // part of hop's protocol shim — assertions about the shim's shape must scope to
 // this portion only. The cobra zsh completion begins with `_hop()` (the
-// completion function); posixInit defines `hop()`/`_hop_passthrough`/`h()` and
-// ends before it.
+// completion function); posixInit defines a single `hop()` interpreter (the
+// PASSTHROUGH body is inlined, not a sibling) plus the `h()` alias, and ends
+// before it.
 func shimOnly(out string) string {
 	// The cobra-generated completion is appended after posixInit, beginning with
 	// the `#compdef hop` directive (zsh) or `# bash completion ...` banner.
@@ -187,14 +188,23 @@ func TestShellInitZshRoutesCompletionToBinary(t *testing.T) {
 	}
 }
 
-// TestShellInitZshPassthroughUsesUnifiedCDChannel asserts the PASSTHROUGH arm
+// TestShellInitZshPassthroughInlinesUnifiedCDChannel asserts the PASSTHROUGH arm
 // provides the unified WT_CD_FILE side-channel (collapsing the former
-// where/open/clone handoffs into one) and never captures stdout via $(...)
-// (which would swallow wt's interactive menu).
-func TestShellInitZshPassthroughUsesUnifiedCDChannel(t *testing.T) {
+// where/open/clone handoffs into one), inlined DIRECTLY into hop() with NO
+// standalone `_hop_passthrough()` sibling definition (intake 1x1u Item 1 — the
+// bug fix: a sibling top-level function is fragile to per-function shell
+// snapshotting). It must also never capture stdout via $(...) (which would
+// swallow wt's interactive menu).
+func TestShellInitZshPassthroughInlinesUnifiedCDChannel(t *testing.T) {
 	out := emitZsh(t)
-	if !strings.Contains(out, "_hop_passthrough") {
-		t.Fatalf("expected `_hop_passthrough` helper, got:\n%s", out)
+	// The fix: NO standalone `_hop_passthrough()` definition (the only form
+	// provably immune to partial capture is a single self-contained hop()).
+	if strings.Contains(out, "_hop_passthrough") {
+		t.Fatalf("expected NO standalone `_hop_passthrough` definition (body must be inlined into hop()), got:\n%s", out)
+	}
+	// The PASSTHROUGH arm must still carry the WT_CD_FILE side-channel verbatim.
+	if !strings.Contains(out, "PASSTHROUGH)") {
+		t.Fatalf("expected `PASSTHROUGH)` case arm, got:\n%s", out)
 	}
 	if !strings.Contains(out, "mktemp -t hop-cd.XXXXXX") {
 		t.Errorf("expected `mktemp -t hop-cd.XXXXXX` temp file, got:\n%s", out)
@@ -213,11 +223,25 @@ func TestShellInitZshPassthroughUsesUnifiedCDChannel(t *testing.T) {
 	}
 }
 
+// TestShellInitZshExportsHopWrapper asserts the shim exports HOP_WRAPPER=1 so the
+// binary can suppress its shell-only hints when the wrapper is present (intake
+// 1x1u Item 4 — hop-specific name, NOT WT_WRAPPER).
+func TestShellInitZshExportsHopWrapper(t *testing.T) {
+	out := emitZsh(t)
+	if !strings.Contains(out, "export HOP_WRAPPER=1") {
+		t.Fatalf("expected `export HOP_WRAPPER=1` in the shim, got:\n%s", out)
+	}
+	// It must be hop-specific, never coupling to wt's wrapper signal.
+	if strings.Contains(out, "WT_WRAPPER") {
+		t.Fatalf("expected hop-specific HOP_WRAPPER, not WT_WRAPPER, got:\n%s", out)
+	}
+}
+
 // TestShellInitZshOmitsLegacyShape asserts the collapsed protocol shim no longer
 // emits the legacy precedence-ladder constructs.
 func TestShellInitZshOmitsLegacyShape(t *testing.T) {
 	out := emitZsh(t)
-	for _, frag := range []string{`command -v "$1"`, `type "$1"`, "is a shell builtin", "_hop_dispatch", "WT_WRAPPER"} {
+	for _, frag := range []string{`command -v "$1"`, `type "$1"`, "is a shell builtin", "_hop_dispatch"} {
 		if strings.Contains(out, frag) {
 			t.Errorf("expected legacy fragment %q to be removed, got:\n%s", frag, out)
 		}

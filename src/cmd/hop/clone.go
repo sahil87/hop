@@ -203,7 +203,7 @@ func cloneURL(cmd *cobra.Command, url, group string, noAdd, noCD bool, nameOverr
 }
 
 // writeCDTarget routes a clone's landed path to the shell shim's unified cd
-// side-channel: when WT_CD_FILE is set (the shim's _hop_passthrough exports it),
+// side-channel: when WT_CD_FILE is set (the shim's PASSTHROUGH arm exports it),
 // the path is written there so the parent shell cds after the clone. The path is
 // always also printed to stdout for scripts/CI that bypass the shim. Suppressed
 // entirely when noCD is true. This folds the former clone-specific stdout

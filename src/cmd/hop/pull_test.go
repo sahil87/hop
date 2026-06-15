@@ -171,6 +171,7 @@ func TestPullStdoutIsEmpty(t *testing.T) {
 // can't honor it directly. Replaces the old cobra two-positional cap test
 // (the root command now accepts arbitrary args; the cap moved into runRoot).
 func TestPullToolFormErrorsInBinary(t *testing.T) {
+	t.Setenv("HOP_WRAPPER", "") // ensure the tool-form hint is not suppressed
 	_, _, _ = pullSyncYAMLFixture(t)
 
 	_, _, err := runArgs(t, "alpha", "echo")
