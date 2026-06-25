@@ -1,3 +1,7 @@
+---
+description: "`internal/proc` security choke point (now exposes `RunCapture`), `internal/fzf` wrapper, `internal/yamled` comment-preserving YAML edits, `internal/scan` git invocation routing"
+type: memory
+---
 # Wrapper Boundaries
 
 How `hop` wraps external tools. Enforces Constitution Principle I (Security First) and Principle IV (Wrap, Don't Reinvent).
@@ -77,7 +81,7 @@ Why a dedicated package separate from `internal/config`: `config` validates and 
 - All `git` invocations route through `Options.GitRunner`, which production binds to `internal/proc.RunCapture` (Constitution Principle I). Tests inject a fake `GitRunner` so no real `git` subprocess spawns. Each invocation gets a 5-second `context.WithTimeout`.
 - The package is **UI-free**: knows about repos and skips, knows nothing about groups, slugify, conflict resolution, YAML, or stderr UX. The CLI layer (`cmd/hop/config_add.go`'s `runAdd`, with shared plan-building helpers in `cmd/hop/config_scan.go`) handles those concerns.
 
-Why a dedicated package: discovery is non-trivial (DFS + inode dedup + classifier + git invocation), benefits from isolated unit tests with an injected `GitRunner`, and slots cleanly alongside `internal/yamled` and `internal/update` as a per-feature internal package. See [config/add-register](../config/add-register.md) for the per-rule details.
+Why a dedicated package: discovery is non-trivial (DFS + inode dedup + classifier + git invocation), benefits from isolated unit tests with an injected `GitRunner`, and slots cleanly alongside `internal/yamled` and `internal/update` as a per-feature internal package. See [config/add-register](/config/add-register.md) for the per-rule details.
 
 ## What is NOT wrapped
 
@@ -97,13 +101,13 @@ Per Constitution Principle IV ("Wrap, Don't Reinvent") — wrap external tools, 
 
 The binary is a transparent passthrough: it resolves the repo and `exec`s `wt open <path>` via `proc.RunForeground(ctx, "", "wt", "open", repo.Path)` with stdio fully inherited. **All env-var orchestration lives in the shell shim**, not the binary. This keeps the binary trivial (~20 lines) and respects the rule that interactive subprocesses can't multiplex stdout with a return-value channel.
 
-**Unified `WT_CD_FILE` cd-channel (change `gyo0`)**: `open` is classified as `PASSTHROUGH` by `--shim-plan`, and the shim's **inlined PASSTHROUGH arm** (change `1x1u` — formerly the `_hop_passthrough()` sibling, now inlined into `hop()` for partial-capture immunity; see [package-layout § single self-contained hop()](package-layout.md#design-decision-posixinit-is-a-single-self-contained-hop--partial-capture-immunity-change-1x1u)) exports `WT_CD_FILE` on **every** passthrough invocation (not just `open`). One env var crosses the shim→wt boundary (the binary is a passive carrier — it's set on the shim's `command hop "$@"` invocation prefix-style, hop's process inherits it, and wt sees it via the parent env):
+**Unified `WT_CD_FILE` cd-channel (change `gyo0`)**: `open` is classified as `PASSTHROUGH` by `--shim-plan`, and the shim's **inlined PASSTHROUGH arm** (change `1x1u` — formerly the `_hop_passthrough()` sibling, now inlined into `hop()` for partial-capture immunity; see [package-layout § single self-contained hop()](/architecture/package-layout.md#design-decision-posixinit-is-a-single-self-contained-hop--partial-capture-immunity-change-1x1u)) exports `WT_CD_FILE` on **every** passthrough invocation (not just `open`). One env var crosses the shim→wt boundary (the binary is a passive carrier — it's set on the shim's `command hop "$@"` invocation prefix-style, hop's process inherits it, and wt sees it via the parent env):
 
 | Env var | Lifecycle | Purpose |
 |---|---|---|
 | `WT_CD_FILE` | the PASSTHROUGH arm creates a temp file via `mktemp -t hop-cd.XXXXXX`, exports its path on the `command hop "$@"` line, reads the file after the command exits, removes it via `rm -f` | wt writes the resolved repo path to this file iff the user picks "Open here"; for any other menu choice (editors, terminals, file managers) wt leaves the file empty. The shim reads the file with `[[ -s "$cdfile" ]]` and `cd -- "$target"` if non-empty (and the command exited 0). The **same channel** is reused by `hop clone <url>`, whose `writeCDTarget` writes the landed path to `WT_CD_FILE` when set. |
 
-**`WT_WRAPPER` was dropped (change `gyo0`); `HOP_WRAPPER` was added (change `1x1u`)**: the shim does NOT export `WT_WRAPPER=1` — the cd side-channel narrowed to just `WT_CD_FILE`. It DOES export the hop-specific `HOP_WRAPPER=1`, which the binary reads to suppress its shell-only hints (NOT a wt-boundary concern — see [cli/subcommands § HOP_WRAPPER hint suppression](../cli/subcommands.md#hop_wrapper--shell-only-hint-suppression) and [cli/agent-non-interactive-usage](../cli/agent-non-interactive-usage.md)). (If wt prints its "Open here requires the shell wrapper" hint in some configs, that is now wt's own surface, not something hop suppresses.)
+**`WT_WRAPPER` was dropped (change `gyo0`); `HOP_WRAPPER` was added (change `1x1u`)**: the shim does NOT export `WT_WRAPPER=1` — the cd side-channel narrowed to just `WT_CD_FILE`. It DOES export the hop-specific `HOP_WRAPPER=1`, which the binary reads to suppress its shell-only hints (NOT a wt-boundary concern — see [cli/subcommands § HOP_WRAPPER hint suppression](/cli/subcommands.md#hop_wrapper--shell-only-hint-suppression) and [cli/agent-non-interactive-usage](/cli/agent-non-interactive-usage.md)). (If wt prints its "Open here requires the shell wrapper" hint in some configs, that is now wt's own surface, not something hop suppresses.)
 
 **Why temp file (not stdout capture)**: wt's app menu is interactive and renders to stdout. Capturing stdout with `$(...)` would swallow the menu and leave the user staring at a blank prompt while wt blocks on stdin. The temp file is a side-channel that keeps wt's stdio fully connected to the user's terminal. This single channel **collapses the three former path-handoffs** — `where` (stdout), `open` (`WT_CD_FILE`), and `clone` (conditional-stdout) — into one unified mechanism (intake §4): `where` still prints to stdout for scripts (file stays empty, no cd); `open` and `clone <url>` route their cd-target through `WT_CD_FILE`.
 

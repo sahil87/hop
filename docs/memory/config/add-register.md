@@ -1,3 +1,7 @@
+---
+description: "`hop add <dir>` (single-dir) and `hop add -r <dir>` (recursive DFS walk) — repo classification, convention/slugify group assignment, `-g` forced group, `-p` print dry-run, conflict resolution, render/merge through `internal/yamled`. (`hop config scan` was deleted, no alias.)"
+type: memory
+---
 # Registering Repos via `hop add`
 
 How `hop add` registers on-disk git repos into `hop.yaml` — at two breadths (single dir, or a recursive `-r` tree walk) and two sinks (write by default, or `-p` dry-run print). This is **one command, two breadths** — there is no separate `scan` subcommand. The CLI lives in `src/cmd/hop/config_add.go` (factories `newAddCmd` / `newConfigAddCmd`, backed by the shared `runAdd`); the shared plan-building helpers (`validateConfigDir`, `buildScanPlan`, slugify, conflict resolution) live in `src/cmd/hop/config_scan.go`; the filesystem walk lives in `src/internal/scan/scan.go`; YAML emission goes through `src/internal/yamled/yamled.go::MergeScan` / `RenderScan`.
@@ -8,7 +12,7 @@ History: recursion was unified onto `hop add` and the standalone `hop config sca
 
 `hop add <dir>` discovers repos under (or at) `<dir>`, classifies each candidate directory, assigns each to a group, and either merges them into `hop.yaml` (default) or renders the plan to stdout (`-p`). Both breadths share the same plan-build + render path — the only difference between single-dir and recursive is which `scan` entry point produces the `[]scan.Found` slice.
 
-`hop add` is the **canonical top-level** command; `hop config add` is its **hidden alias** sharing the exact same `runAdd` body (differing only in the per-path stderr prefix `"hop config add"` vs `"hop add"`) — see [cli/subcommands § Migration: hidden config aliases](../cli/subcommands.md#migration-hidden-config-aliases).
+`hop add` is the **canonical top-level** command; `hop config add` is its **hidden alias** sharing the exact same `runAdd` body (differing only in the per-path stderr prefix `"hop config add"` vs `"hop add"`) — see [cli/subcommands § Migration: hidden config aliases](/cli/subcommands.md#migration-hidden-config-aliases).
 
 ### Flags
 
@@ -72,7 +76,7 @@ Exit 2. No `git` invocation occurs on a failed validation (Constitution I).
 
 How `add` resolves (or creates) `hop.yaml` before discovery depends on the **sink**, not the breadth — `resolveAddConfig(stderr, cmdName, print)`:
 
-- **Write mode (default, no `-p`)** auto-inits a missing config (change `260605-44hm-auto-init-on-write`). It calls `config.ResolveWriteTarget()` (no stat — only errors on `$HOME` unset) then `config.EnsureSkeleton(path)`, which writes the minimal `repos: {}` skeleton when absent and announces `created: <path>` to stderr (see [init-bootstrap § Auto-init-on-write](init-bootstrap.md#auto-init-on-write-change-260605-44hm-auto-init-on-write)). The merge then proceeds against the now-existing file. So `hop add -r ~/code` on a fresh machine creates the config and registers discovered repos in one step — no `config init` prerequisite.
+- **Write mode (default, no `-p`)** auto-inits a missing config (change `260605-44hm-auto-init-on-write`). It calls `config.ResolveWriteTarget()` (no stat — only errors on `$HOME` unset) then `config.EnsureSkeleton(path)`, which writes the minimal `repos: {}` skeleton when absent and announces `created: <path>` to stderr (see [init-bootstrap § Auto-init-on-write](/config/init-bootstrap.md#auto-init-on-write-change-260605-44hm-auto-init-on-write)). The merge then proceeds against the now-existing file. So `hop add -r ~/code` on a fresh machine creates the config and registers discovered repos in one step — no `config init` prerequisite.
 - **Print mode (`-p`)** never touches the file, so there is nothing to bootstrap — it calls `config.Resolve()` and **errors on absence**. The message is the refined resolver text (change `260605-44hm-auto-init-on-write`), surfaced under the add prefix:
 
   ```
@@ -104,7 +108,7 @@ A discovery error is mapped by `addGitError`: `proc.ErrNotFound` → the shared 
 6. After classifying as a repo (or skip), do **not** descend into the directory's children — repos' children are never themselves repos.
 7. Otherwise (plain dir): enqueue immediate subdirectories at `depth+1` in **reverse lexical order** so the DFS pop order yields lexical visit order (deterministic for tests and slug-tie tiebreaking).
 
-`scan.ClassifyOne(ctx, dir, opts) (found Found, skipReason string, isRepo bool, err error)` is the **single-dir entry point** — it applies the *exact* unexported `classifyDir` + `inspectRepo` logic `Walk` runs per directory (no recursion, `opts.Depth` ignored). See [architecture/package-layout § internal/scan](../architecture/package-layout.md#internalscan) for the exported-seam rationale.
+`scan.ClassifyOne(ctx, dir, opts) (found Found, skipReason string, isRepo bool, err error)` is the **single-dir entry point** — it applies the *exact* unexported `classifyDir` + `inspectRepo` logic `Walk` runs per directory (no recursion, `opts.Depth` ignored). See [architecture/package-layout § internal/scan](/architecture/package-layout.md#internalscan) for the exported-seam rationale.
 
 ### Repo classification rules
 
@@ -318,7 +322,7 @@ type InventedGroup struct {
 
 The standalone `hop config scan` cobra subcommand was **removed entirely** in change `260608-w2bj-unify-recursive-add` — `newConfigScanCmd()`, its `runConfigScan` entry point, the `scanLong` help string, and the `scanHeaderComment` / `emitScanSummary` helpers (scan-exclusive) are all gone. The walk capability now lives as `hop add -r`.
 
-**No alias** — `hop config scan <anything>` returns cobra's `unknown command "scan" for "hop config"` and a non-zero exit. This is a deliberate hard break (user decision, made after being shown the back-compat tradeoff twice — contrast with `add`/`rm`, which DO survive as hidden `config` aliases). It is implemented via a `RunE` on the `config` parent command (`config.go::newConfigCmd`, `Args: cobra.ArbitraryArgs`): a bare `hop config` (no args) prints help; an unknown subcommand reaches the parent's RunE with non-empty args and returns `fmt.Errorf("unknown command %q for %q", args[0], cmd.CommandPath())`. Valid subcommands (`init`/`where`/`print` and the hidden `add`/`rm` aliases) dispatch to their own RunE before this fires. See [cli/subcommands § Migration: hidden config aliases](../cli/subcommands.md#migration-hidden-config-aliases).
+**No alias** — `hop config scan <anything>` returns cobra's `unknown command "scan" for "hop config"` and a non-zero exit. This is a deliberate hard break (user decision, made after being shown the back-compat tradeoff twice — contrast with `add`/`rm`, which DO survive as hidden `config` aliases). It is implemented via a `RunE` on the `config` parent command (`config.go::newConfigCmd`, `Args: cobra.ArbitraryArgs`): a bare `hop config` (no args) prints help; an unknown subcommand reaches the parent's RunE with non-empty args and returns `fmt.Errorf("unknown command %q for %q", args[0], cmd.CommandPath())`. Valid subcommands (`init`/`where`/`print` and the hidden `add`/`rm` aliases) dispatch to their own RunE before this fires. See [cli/subcommands § Migration: hidden config aliases](/cli/subcommands.md#migration-hidden-config-aliases).
 
 The **shared helpers** in `config_scan.go` that `add` depends on are retained: `validateConfigDir`, `buildScanPlan`, `slugifyGroupName`, `matchesConvention`, `resolveInventedName`, `homeSubstitute`, `buildSkipParts`, `pluralize`, and the `scanPlanSummary` struct (which gained a `forcedGroup` field for `-g`). The new `addPrintHeader` / `emitAddSummary` (the write-default trailer spellings) live in `config_add.go`, replacing scan's deleted `scanHeaderComment` / `emitScanSummary`. `internal/scan` is **UNTOUCHED**.
 
@@ -346,8 +350,8 @@ No other external tools are required.
 
 ## Cross-references
 
-- Bootstrap-then-populate workflow, `hop config init`'s post-write tip wording (now `hop add -r <dir>`), and **auto-init-on-write** (`EnsureSkeleton`, the `created:` announcement, the read-vs-write split, and clone's `yamled.EnsureGroup` step): [init-bootstrap](init-bootstrap.md)
-- YAML schema and group regex `^[a-z][a-z0-9_-]*$` that slugify must conform to: [yaml-schema](yaml-schema.md)
-- `internal/scan` package role and `Walk`/`ClassifyOne`/`Found`/`Skip`/`Options` public surface: [architecture/package-layout](../architecture/package-layout.md)
-- Constitution I compliance: `internal/scan` invokes `git` only via `internal/proc.RunCapture`: [architecture/wrapper-boundaries](../architecture/wrapper-boundaries.md)
-- `hop add <dir>` full inventory row (flags, exit-code matrix, hidden `hop config add` alias) and `hop rm [<name>]`: [cli/subcommands](../cli/subcommands.md)
+- Bootstrap-then-populate workflow, `hop config init`'s post-write tip wording (now `hop add -r <dir>`), and **auto-init-on-write** (`EnsureSkeleton`, the `created:` announcement, the read-vs-write split, and clone's `yamled.EnsureGroup` step): [init-bootstrap](/config/init-bootstrap.md)
+- YAML schema and group regex `^[a-z][a-z0-9_-]*$` that slugify must conform to: [yaml-schema](/config/yaml-schema.md)
+- `internal/scan` package role and `Walk`/`ClassifyOne`/`Found`/`Skip`/`Options` public surface: [architecture/package-layout](/architecture/package-layout.md)
+- Constitution I compliance: `internal/scan` invokes `git` only via `internal/proc.RunCapture`: [architecture/wrapper-boundaries](/architecture/wrapper-boundaries.md)
+- `hop add <dir>` full inventory row (flags, exit-code matrix, hidden `hop config add` alias) and `hop rm [<name>]`: [cli/subcommands](/cli/subcommands.md)

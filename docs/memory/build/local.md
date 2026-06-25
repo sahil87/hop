@@ -1,6 +1,10 @@
+---
+description: "justfile + scripts/build.sh + scripts/install.sh; local development workflow"
+type: memory
+---
 # Local Build
 
-How `hop` is built and installed locally. The cross-platform release pipeline (GitHub Actions, homebrew-tap) lives in [release-pipeline](release-pipeline.md).
+How `hop` is built and installed locally. The cross-platform release pipeline (GitHub Actions, homebrew-tap) lives in [release-pipeline](/build/release-pipeline.md).
 
 ## Justfile
 
@@ -23,7 +27,7 @@ release bump="patch":
     ./scripts/release.sh {{bump}}
 ```
 
-The `release` recipe delegates to `scripts/release.sh` and is documented in [release-pipeline](release-pipeline.md).
+The `release` recipe delegates to `scripts/release.sh` and is documented in [release-pipeline](/build/release-pipeline.md).
 
 ## `scripts/build.sh`
 
@@ -81,4 +85,4 @@ Both succeed because `internal/platform/` uses build tags (`//go:build darwin`, 
 
 ## Cross-references
 
-The cross-platform release pipeline (tag-driven workflow, formula template, `release.sh`, homebrew-tap update) is documented in [release-pipeline](release-pipeline.md). Pre-implementation design intent lives in `docs/specs/build-and-release.md`.
+The cross-platform release pipeline (tag-driven workflow, formula template, `release.sh`, homebrew-tap update) is documented in [release-pipeline](/build/release-pipeline.md). Pre-implementation design intent lives in `docs/specs/build-and-release.md`.

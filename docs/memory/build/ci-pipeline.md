@@ -1,8 +1,12 @@
+---
+description: "push/PR GitHub Actions test gate (`ci.yml`); `test` job (gofmt/vet/test from `src/`) + `ci-gate` single required-check job; byte-identical to `wt`; branch-protection is a manual repo-settings follow-up"
+type: memory
+---
 # CI Pipeline
 
-How `hop` gates merges on passing tests. A GitHub Actions workflow at `.github/workflows/ci.yml` (name `CI`) that runs `gofmt`, `go vet`, and `go test` on every push to `main` and every pull request. Distinct from the [release-pipeline](release-pipeline.md): that fires on `v*` tags and ships binaries; this fires on pushes/PRs and only reads the repo to verify it builds clean.
+How `hop` gates merges on passing tests. A GitHub Actions workflow at `.github/workflows/ci.yml` (name `CI`) that runs `gofmt`, `go vet`, and `go test` on every push to `main` and every pull request. Distinct from the [release-pipeline](/build/release-pipeline.md): that fires on `v*` tags and ships binaries; this fires on pushes/PRs and only reads the repo to verify it builds clean.
 
-The workflow is byte-identical to the sibling `wt` repo's `ci.yml` (verified at apply time via `diff`), the same way [release-pipeline](release-pipeline.md) mirrors run-kit's release workflow. `wt` is the same author's sibling Go CLI with the identical `src/`-rooted module layout and the same SHA-pinned action conventions, so its `ci.yml` is a proven drop-in template. Keeping the two byte-identical lets a single diff update both repos if the workflow ever needs to change.
+The workflow is byte-identical to the sibling `wt` repo's `ci.yml` (verified at apply time via `diff`), the same way [release-pipeline](/build/release-pipeline.md) mirrors run-kit's release workflow. `wt` is the same author's sibling Go CLI with the identical `src/`-rooted module layout and the same SHA-pinned action conventions, so its `ci.yml` is a proven drop-in template. Keeping the two byte-identical lets a single diff update both repos if the workflow ever needs to change.
 
 ## Triggers, permissions, concurrency
 
@@ -68,7 +72,7 @@ Both actions are SHA-pinned with `# v<N>` trailing comments, reusing **the exact
 | `actions/checkout` | `34e114876b0b11c390a56381ad16ebd13914f8d5` | v4 |
 | `actions/setup-go` | `40f1582b2485089dde7abd97c1529aa768e1baff` | v5 |
 
-`wt`'s `ci.yml` pins the same SHAs. See [release-pipeline § Action SHAs](release-pipeline.md#action-shas) for the release workflow's full pin table and the lockstep policy.
+`wt`'s `ci.yml` pins the same SHAs. See [release-pipeline § Action SHAs](/build/release-pipeline.md#action-shas) for the release workflow's full pin table and the lockstep policy.
 
 ## Branch-protection enforcement (manual, post-merge)
 

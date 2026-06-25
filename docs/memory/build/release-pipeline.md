@@ -1,3 +1,7 @@
+---
+description: "tag-driven GitHub Actions release workflow; cross-compile matrix; homebrew-tap update via formula template; shll.ai help-reference pull model (2026-06-03 transport inversion); scripts/release.sh"
+type: memory
+---
 # Release Pipeline
 
 How `hop` cuts a release. Hand-rolled GitHub Actions workflow mirroring `~/code/sahil87/run-kit`'s shape, with a tag-driven version source (no `VERSION` file — `hop` is single-binary, so the git tag itself is the source of truth).
@@ -65,7 +69,7 @@ All third-party actions are pinned to commit SHAs with `# v<N>` comments:
 
 ## Help reference (shll.ai)
 
-shll.ai renders an expandable "Command reference" on each tool's landing page from a per-tool `help/<tool>.json` artifact. hop's slice of that artifact is produced by the hidden [`hop help-dump`](../cli/subcommands.md#hop-help-dump--json-help-tree-contract) command, which remains the **contract surface**.
+shll.ai renders an expandable "Command reference" on each tool's landing page from a per-tool `help/<tool>.json` artifact. hop's slice of that artifact is produced by the hidden [`hop help-dump`](/cli/subcommands.md#hop-help-dump--json-help-tree-contract) command, which remains the **contract surface**.
 
 **Transport inversion (2026-06-03)** — shll.ai's help collection used to be **push**-based: hop's release workflow ran a final `Dump help tree and PR to shll.ai` step (added by change `jr5f`) that dumped the help tree from the freshly built binary, injected `captured_at`, validated the envelope, and opened an auto-merged PR into `sahil87/shll.ai`. On 2026-06-03 shll.ai inverted the transport to **pull**: shll.ai's own scheduled job installs each tool and runs the published binary's `hop help-dump` itself to collect `help/hop.json`. With that puller confirmed live, change `g56l` tore down hop's push wiring — the `Dump help tree and PR to shll.ai` workflow step, the `help-dump` justfile recipe, and `scripts/help-dump.sh` were all removed. **hop no longer pushes**; it only exposes the `hop help-dump` command for shll.ai to pull.
 
@@ -89,7 +93,7 @@ The published formula's structure:
 
 - `class Hop < Formula` opener.
 - `desc`, `homepage`, `version`, `license "MIT"` (informational — brew does not enforce).
-- `depends_on "sahil87/tap/wt"` — runtime dependency on the `wt` worktree CLI. `hop <name> open` shells out to `wt open` to delegate app detection, menu selection, and the "Open here" cd round-trip (see [`architecture/wrapper-boundaries`](../architecture/wrapper-boundaries.md#wt-env-contract-cmdhopopengo) for the env contract). Declared in the template so `brew install sahil87/tap/hop` pulls wt automatically. `Formula/wt.rb` already lives in `sahil87/homebrew-tap` alongside hop, fab-kit, rk, tu, and idea — no separate tap-side work was needed.
+- `depends_on "sahil87/tap/wt"` — runtime dependency on the `wt` worktree CLI. `hop <name> open` shells out to `wt open` to delegate app detection, menu selection, and the "Open here" cd round-trip (see [`architecture/wrapper-boundaries`](/architecture/wrapper-boundaries.md#wt-env-contract-cmdhopopengo) for the env contract). Declared in the template so `brew install sahil87/tap/hop` pulls wt automatically. `Formula/wt.rb` already lives in `sahil87/homebrew-tap` alongside hop, fab-kit, rk, tu, and idea — no separate tap-side work was needed.
 - `on_macos` block with nested `on_arm` / `on_intel` blocks declaring `url` and `sha256` for the two darwin tar.gz files.
 - `on_linux` block with the same shape for the two linux tar.gz files.
 - URLs follow `https://github.com/sahil87/hop/releases/download/v#{version}/hop-{os}-{arch}.tar.gz` — note the `v` prefix is re-added in the URL, so `version "VERSION_PLACEHOLDER"` stores the bare form.
@@ -128,4 +132,4 @@ These are policy decisions, not deferrals:
 - `docs/specs/build-and-release.md` — pre-implementation design intent and behavioral scenarios.
 - `docs/memory/build/local.md` — `just build` / `just install` for local development.
 - `docs/memory/build/ci-pipeline.md` — the push/PR test gate (`ci.yml`); shares this workflow's SHA-pinned actions and `src/`-rooted Go setup, but fires on pushes/PRs (not `v*` tags) and only needs `contents: read`.
-- `docs/memory/cli/subcommands.md` — the binary being released, including its `--version` surface and the hidden [`hop help-dump`](../cli/subcommands.md#hop-help-dump--json-help-tree-contract) producer that shll.ai's scheduled job pulls (see Help reference above).
+- `docs/memory/cli/subcommands.md` — the binary being released, including its `--version` surface and the hidden [`hop help-dump`](/cli/subcommands.md#hop-help-dump--json-help-tree-contract) producer that shll.ai's scheduled job pulls (see Help reference above).
