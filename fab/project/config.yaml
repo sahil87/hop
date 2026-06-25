@@ -1,22 +1,36 @@
 agent:
-    spawn_command: claude --dangerously-skip-permissions --effort xhigh -n "$(basename "$(pwd)")"
+  spawn_command: claude --dangerously-skip-permissions --effort xhigh -n "$(basename "$(pwd)")"
+  # agent.tiers — per-stage model override (optional). A "tier" is a named
+  # {model, effort} profile. fab-kit owns the FIXED, non-overridable stage→tier
+  # mapping below; you override only WHAT EACH TIER MEANS (model + effort).
+  # Omit any tier (or the whole tiers: block) to use fab-kit's built-in default.
+  # Resolved per stage by `fab resolve-agent <stage>` at sub-agent dispatch time.
+  # See docs/specs/stage-models.md.
+  #
+  # FIXED stage→tier mapping (fab-owned, NOT overridable — shown for reference):
+  #   thinking: intake, review            (generative judgment)
+  #   doing:    apply, review-pr, hydrate  (execution that must not err)
+  #   fast:     ship                       (speed on near-mechanical work)
+  #
+  # fab-kit's built-in default profiles (today):
+  #   thinking: { model: claude-opus-4-8,   effort: xhigh }
+  #   doing:    { model: claude-opus-4-8,   effort: high  }
+  #   fast:     { model: claude-sonnet-4-6, effort: low   }
+  #
+  # Override shape (uncomment + edit any tier; an omitted field inherits the
+  # default for that tier; an empty model means "inherit the session model";
+  # values are passed through verbatim — fab does no provider validation):
+  # tiers:
+  #   doing: { model: claude-sonnet-4-6, effort: medium }   # example: run doing cheaper
 checklist:
-    extra_categories: []
-fab_version: 2.0.1
+  extra_categories: []
+fab_version: 2.6.6
 project:
-    description: Go CLI for quick repo operations — locate, open, list, and clone repos from hop.yaml.
-    name: hop
+  description: Go CLI for quick repo operations — locate, open, list, and clone repos from hop.yaml.
+  name: hop
 source_paths:
-    - cmd
-    - internal
-stage_directives:
-    apply:
-        - Use GIVEN/WHEN/THEN for scenarios
-        - Mark ambiguities with [NEEDS CLARIFICATION]
-    hydrate: []
-    intake: []
-    review: []
-    tasks: []
+  - cmd
+  - internal
 true_impact_exclude:
-    - fab/
-    - docs/
+  - fab/
+  - docs/
