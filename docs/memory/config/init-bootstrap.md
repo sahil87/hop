@@ -1,10 +1,14 @@
+---
+description: "`hop config init` write target, mode 0644, embedded grouped-form starter; post-write tip text (`hop add -r <dir>`); **auto-init-on-write** (`EnsureSkeleton` minimal `repos: {}` skeleton for `hop add` write mode / `clone <url>`, `created:` announcement, read-vs-write split)"
+type: memory
+---
 # Config Init / Bootstrap
 
 How `hop config init` and `hop config where` behave, plus **auto-init-on-write** (the write-commands self-bootstrap a missing config). Implemented in `src/cmd/hop/config.go`; the actual file write is in `src/internal/config/config.go::WriteStarter` (explicit `init`) and `src/internal/config/config.go::EnsureSkeleton` (auto-init). Starter content is embedded from `src/internal/config/starter.yaml`.
 
 ## `hop config init`
 
-1. Calls `config.ResolveWriteTarget()` ([search-order](search-order.md)) — does NOT trigger the missing-file hard error.
+1. Calls `config.ResolveWriteTarget()` ([search-order](/config/search-order.md)) — does NOT trigger the missing-file hard error.
 2. Calls `config.WriteStarter(target)`:
    - If target exists → returns:
      ```
@@ -71,7 +75,7 @@ The **write-commands** auto-create a minimal `hop.yaml` when it is absent instea
 func EnsureSkeleton(path string) (created bool, err error)
 ```
 
-- **Content**: exactly the bytes `repos: {}\n` (named constant `skeletonContent` in `config.go`). No `config:` block, no `code_root`, no header comment. `code_root` defaults to `~` when the `config:` block is absent (see [search-order](search-order.md) / [yaml-schema](yaml-schema.md)), so the bare skeleton is fully functional — convention repos still land at `<code_root>/<org>/<name>`.
+- **Content**: exactly the bytes `repos: {}\n` (named constant `skeletonContent` in `config.go`). No `config:` block, no `code_root`, no header comment. `code_root` defaults to `~` when the `config:` block is absent (see [search-order](/config/search-order.md) / [yaml-schema](/config/yaml-schema.md)), so the bare skeleton is fully functional — convention repos still land at `<code_root>/<org>/<name>`.
 - **Create path**: when the file is absent, `os.MkdirAll(filepath.Dir(path), 0o755)` then `os.WriteFile(path, skeletonContent, 0o644)`, returning `(true, nil)`. Same 0644 mode rationale as the starter (repo paths + public URLs, no credentials).
 - **No-op path**: when the file already exists it is left **byte-for-byte unchanged** and returns `(false, nil)` — it never overwrites (the inverse trigger of `WriteStarter`: absence creates, presence is the no-op). This makes auto-init **idempotent** — a second write-command run does not re-announce `created:`.
 - **Stat errors**: a stat error other than not-exist (e.g. a permission error) is returned, not swallowed (`hop: stat <path>: <err>`).
@@ -82,7 +86,7 @@ Auto-init is **announced, not silent**: when `EnsureSkeleton` returns `created==
 
 ### `hop clone <url>` ensure-group step
 
-A fresh `repos: {}` skeleton has **no groups** at all, so `clone`'s target group (default `default`, or `--group <name>`) won't exist yet and `yamled.AppendURL` would return `ErrGroupNotFound`. So `cloneURL` calls `yamled.EnsureGroup(path, group)` — which idempotently adds `<group>: []` under `repos` (synthesizing the `repos` mapping if absent) — **only when `created==true`** (i.e. when *it* just created the skeleton). On a **pre-existing** config it does NOT call `EnsureGroup`, so a typo'd `--group <nonexistent>` still hits `findGroup==nil → error` — `AppendURL`'s `ErrGroupNotFound` typo-catching contract is preserved unchanged. See [cli/subcommands § Ad-hoc URL clone](../cli/subcommands.md#ad-hoc-url-clone) and [add-register § -g forced group](add-register.md#-g-forced-group-auto-create) (which reuses the same `yamled.EnsureGroup` helper). Note: `hop clone --no-add <url>` on a fresh machine **still creates** the config (the skeleton + target group are needed for path resolution); `--no-add` suppresses only the URL write-back, not the file's creation.
+A fresh `repos: {}` skeleton has **no groups** at all, so `clone`'s target group (default `default`, or `--group <name>`) won't exist yet and `yamled.AppendURL` would return `ErrGroupNotFound`. So `cloneURL` calls `yamled.EnsureGroup(path, group)` — which idempotently adds `<group>: []` under `repos` (synthesizing the `repos` mapping if absent) — **only when `created==true`** (i.e. when *it* just created the skeleton). On a **pre-existing** config it does NOT call `EnsureGroup`, so a typo'd `--group <nonexistent>` still hits `findGroup==nil → error` — `AppendURL`'s `ErrGroupNotFound` typo-catching contract is preserved unchanged. See [cli/subcommands § Ad-hoc URL clone](/cli/subcommands.md#ad-hoc-url-clone) and [add-register § -g forced group](/config/add-register.md#-g-forced-group-auto-create) (which reuses the same `yamled.EnsureGroup` helper). Note: `hop clone --no-add <url>` on a fresh machine **still creates** the config (the skeleton + target group are needed for path resolution); `--no-add` suppresses only the URL write-back, not the file's creation.
 
 ### Read-vs-write split
 
@@ -92,7 +96,7 @@ A fresh `repos: {}` skeleton has **no groups** at all, so `clone`'s target group
 hop: no hop.yaml found at <path>. Run 'hop add <dir>' to register a repo (creates the config), or 'hop config init' for a starter.
 ```
 
-`hop rm` / `hop config rm` are **also not** in the auto-init set — `rm` has nothing to register on a fresh machine, so it retains its own historical gate message (`Run 'hop config init' first, then re-run rm.`, `config_rm.go`). See [search-order § Resolve() semantics](search-order.md#resolve-semantics).
+`hop rm` / `hop config rm` are **also not** in the auto-init set — `rm` has nothing to register on a fresh machine, so it retains its own historical gate message (`Run 'hop config init' first, then re-run rm.`, `config_rm.go`). See [search-order § Resolve() semantics](/config/search-order.md#resolve-semantics).
 
 ### `init` vs. auto-init: which writes what
 
@@ -107,7 +111,7 @@ hop: no hop.yaml found at <path>. Run 'hop add <dir>' to register a repo (create
 
 1. **Auto-init writes a minimal skeleton, NOT the annotated starter** (change `260605-44hm-auto-init-on-write`). *Why*: the starter seeds `git@github.com:sahil87/hop.git` to give a bare-`init` user *something* to `hop` at. But a user running `hop add <dir>` / `scan --write` / `clone <url>` already carries their own intent — injecting the unrelated `hop.git` self-bootstrap repo they didn't ask for would be surprising. So auto-init writes `repos: {}` and the command applies its operation on top; the result contains exactly what the user asked for. *Rejected*: (a) seeding an empty `default:` group into the skeleton — contradicts truly-minimal and doesn't generalize to `clone --group <other>` (clone's `EnsureGroup` handles any group uniformly); (c) reusing the full starter — injects the unwanted seed.
 2. **Only write-commands auto-init; readers keep erroring** (change `260605-44hm-auto-init-on-write`). Writers have something to write, so create-on-absence is natural and intent-preserving. Readers have nothing to write — a clear not-found error (now pointing at `hop add`) beats a conjured empty config that immediately reports "no repos".
-3. **Dependency on the fixed-path property** (change `260605-xgmu-fix-config-location`). Auto-init is only *safe* because the config now lives at exactly one fixed path with no env overrides — so "no file at the one known path" has exactly one meaning: it doesn't exist yet. Before the fixed-path change, a failed resolve was ambiguous (forgot to init? typo'd `$HOP_CONFIG`?), and auto-creating would have silently masked a misconfiguration. The unambiguous-absence precondition is what made this change implementable. See [search-order § Design Decisions](search-order.md#design-decisions).
+3. **Dependency on the fixed-path property** (change `260605-xgmu-fix-config-location`). Auto-init is only *safe* because the config now lives at exactly one fixed path with no env overrides — so "no file at the one known path" has exactly one meaning: it doesn't exist yet. Before the fixed-path change, a failed resolve was ambiguous (forgot to init? typo'd `$HOP_CONFIG`?), and auto-creating would have silently masked a misconfiguration. The unambiguous-absence precondition is what made this change implementable. See [search-order § Design Decisions](/config/search-order.md#design-decisions).
 
 ## `hop config where`
 
@@ -117,7 +121,7 @@ Renamed from v0.0.1's `hop config path` for voice-fit consistency with the locat
 
 ## Cross-references
 
-- Bootstrap-then-populate workflow (`hop config init` followed by `hop add -r <dir>`, or just `hop add -r <dir>` directly on a fresh machine): [add-register](add-register.md)
-- Search order shared by `init`, `where`, and `add`'s precondition check; the refined `Resolve()` not-found message and the read-vs-write split: [search-order](search-order.md)
-- Auto-init wiring per write-command + exit-code changes: [cli/subcommands](../cli/subcommands.md) (`hop add`, `hop clone <url>` rows)
-- `yamled.EnsureGroup` (clone's ensure-target-group helper, also used by `hop add -g`) and the `hop add` write-mode precondition: [add-register](add-register.md)
+- Bootstrap-then-populate workflow (`hop config init` followed by `hop add -r <dir>`, or just `hop add -r <dir>` directly on a fresh machine): [add-register](/config/add-register.md)
+- Search order shared by `init`, `where`, and `add`'s precondition check; the refined `Resolve()` not-found message and the read-vs-write split: [search-order](/config/search-order.md)
+- Auto-init wiring per write-command + exit-code changes: [cli/subcommands](/cli/subcommands.md) (`hop add`, `hop clone <url>` rows)
+- `yamled.EnsureGroup` (clone's ensure-target-group helper, also used by `hop add -g`) and the `hop add` write-mode precondition: [add-register](/config/add-register.md)

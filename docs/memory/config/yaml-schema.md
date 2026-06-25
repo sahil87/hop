@@ -1,3 +1,7 @@
+---
+description: "Grouped schema: `config:` + `repos:` named groups (flat list or `dir`/`urls` map); URL parsing; path resolution"
+type: memory
+---
 # hop.yaml Schema
 
 How `hop.yaml` is structured and how Repo entries are derived. Schema is parsed in `src/internal/config/config.go`; field derivation lives in `src/internal/repos/repos.go`.
@@ -75,7 +79,7 @@ Both forms are valid:
 
 The latter is useful as a `--group` target for `hop clone <url>` before any URLs have been registered.
 
-This rule is load-bearing for **`yamled.RemoveURL`** (used by `hop rm` and its hidden `hop config rm` alias — see [cli/subcommands](../cli/subcommands.md)): removing a group's last URL leaves the now-empty group node intact (`default: []` for flat groups, `mygroup: { dir: ..., urls: [] }` for map-shaped groups) rather than deleting the group key. `RemoveURL` only ever drops the matched URL scalar; the empty placeholder it leaves behind is a valid group by this rule, so the group stays a valid `hop clone --group` target.
+This rule is load-bearing for **`yamled.RemoveURL`** (used by `hop rm` and its hidden `hop config rm` alias — see [cli/subcommands](/cli/subcommands.md)): removing a group's last URL leaves the now-empty group node intact (`default: []` for flat groups, `mygroup: { dir: ..., urls: [] }` for map-shaped groups) rather than deleting the group key. `RemoveURL` only ever drops the matched URL scalar; the empty placeholder it leaves behind is a valid group by this rule, so the group stays a valid `hop clone --group` target.
 
 ## Loading semantics
 
@@ -159,4 +163,4 @@ Anything is accepted as a URL string. A YAML-valid but semantically odd entry li
 
 ## Removed in this change
 
-The flat directory→URLs schema (v0.0.1's `~/code/sahil87: [...]`) is gone. There is no migration path — users `cp repos.yaml ~/.config/hop/hop.yaml` and rewrite by hand. See [search-order](search-order.md) for env var and search-path changes.
+The flat directory→URLs schema (v0.0.1's `~/code/sahil87: [...]`) is gone. There is no migration path — users `cp repos.yaml ~/.config/hop/hop.yaml` and rewrite by hand. See [search-order](/config/search-order.md) for env var and search-path changes.
