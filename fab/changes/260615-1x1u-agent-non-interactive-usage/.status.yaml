@@ -2,7 +2,7 @@ id: 1x1u
 name: 260615-1x1u-agent-non-interactive-usage
 created: 2026-06-15T06:01:48Z
 created_by: sahil-noon
-change_type: feat
+change_type: fix
 issues: []
 progress:
     intake: done
@@ -17,11 +17,11 @@ plan:
     acceptance_count: 6
     acceptance_completed: 6
 confidence:
-    certain: 11
-    confident: 0
-    tentative: 1
+    certain: 5
+    confident: 7
+    tentative: 0
     unresolved: 0
-    score: 4.0
+    score: 4.3
     fuzzy: true
     dimensions:
         signal: 91.5
@@ -47,6 +47,4 @@ true_impact:
         net: 0
     computed_at: "2026-06-15T06:53:00Z"
     computed_at_stage: hydrate
-# true_impact: lazily created on first apply-finish (no placeholder here).
-summary: ""
-last_updated: 2026-06-15T07:07:43Z
+last_updated: 2026-07-09T12:13:01Z
