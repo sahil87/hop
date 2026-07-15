@@ -6,6 +6,18 @@
 
 A small Go CLI that turns one config file (`hop.yaml`) into a personal directory of all your git repos — navigate, clone, run commands, and batch-update them from any directory.
 
+## Install
+
+```sh
+curl -fsSL https://shll.ai/install | sh -s -- hop
+```
+
+Installs hop (plus the shll meta-CLI) via Homebrew, handling tap trust automatically. To install the entire sahil87 toolkit instead:
+
+```sh
+curl -fsSL https://shll.ai/install | sh
+```
+
 ## Why hop?
 
 - **One config, every machine** — `hop.yaml` lives at `~/.config/hop/hop.yaml` and lists every repo you care about (with groups). Keep it in your dotfiles and symlink that path to it, and your repo directory follows you between laptops.
@@ -59,13 +71,7 @@ hop  web<TAB>/main      where                   # → main-worktree path (same a
 
 The `/<wt-name>` resolves via `wt list --json`, so wt must be on `PATH` for any `/`-suffixed query — bare `hop webapp` is unaffected. The full grammar (subcommands, verbs, flags) is in [Grammar at a glance](#grammar-at-a-glance) below.
 
-## Install
-
-### Homebrew (macOS and Linux)
-
-```sh
-brew install sahil87/tap/hop
-```
+## Other ways to install
 
 To upgrade later, run `hop update` — self-upgrades via Homebrew. When `hop` was installed from source or a release tarball, it prints a hint and exits without invoking brew.
 
