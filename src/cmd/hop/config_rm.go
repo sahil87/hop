@@ -296,15 +296,38 @@ func removeRepo(stderr io.Writer, cmdName, configPath string, repo *repos.Repo, 
 // confirmRemoval runs the interactive consent prompt for `hop rm <name>` on a
 // terminal (change clc4). It writes the resolved match preview and a
 // `Proceed? [y/N]` prompt to stderr (stdout stays empty — principle №2), then
-// reads a single line from cmd.InOrStdin() (cobra's injectable stdin, so
-// seam-injected tests feed input without a PTY). It returns true only for a
-// trimmed, case-insensitive `y`/`yes`; everything else — including bare Enter
-// (the [y/N] default is No) and a read error / EOF — returns false. No
-// subprocess is spawned and the input never reaches a shell (Constitution I).
+// reads a single line for the answer. It returns true only for a trimmed,
+// case-insensitive `y`/`yes`; everything else — including bare Enter (the [y/N]
+// default is No) and a read error / EOF — returns false. No subprocess is
+// spawned and the input never reaches a shell (Constitution I).
+//
+// Input channel: the consent gate is reached only past isTTY(), which probes
+// /dev/tty (NOT os.Stdin) so it matches fzf's controlling-terminal model — see
+// tty.go. confirmRemoval reads the answer from the SAME channel: when the
+// command's input is the real os.Stdin (production), it reads /dev/tty directly.
+// This keeps the gated channel and the read channel identical, so redirecting
+// stdin to a pipe/file that never sends a newline (e.g. `tail -f /dev/null | hop
+// rm wt`) can neither hang the prompt nor consume that non-interactive stdin —
+// the prompt is answered on the terminal isTTY() already vouched for. When a
+// reader was injected via cmd.SetIn (tests feed input without a PTY, and
+// InOrStdin() returns that reader rather than os.Stdin), that injected reader is
+// honored instead. If /dev/tty cannot be opened, fall back to InOrStdin().
 func confirmRemoval(cmd *cobra.Command, stderr io.Writer, repo *repos.Repo) bool {
 	fmt.Fprintf(stderr, "remove: %s  (%s)\n", repo.Name, repo.URL)
 	fmt.Fprint(stderr, "Proceed? [y/N] ")
-	line, _ := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
+
+	in := cmd.InOrStdin()
+	if in == os.Stdin {
+		// Production: no reader was injected. Read consent from the controlling
+		// terminal (the channel isTTY() gated on), not os.Stdin, so a redirected
+		// stdin never hangs or gets consumed here.
+		if tty, err := os.Open("/dev/tty"); err == nil {
+			defer tty.Close()
+			in = tty
+		}
+	}
+
+	line, _ := bufio.NewReader(in).ReadString('\n')
 	switch strings.ToLower(strings.TrimSpace(line)) {
 	case "y", "yes":
 		return true
