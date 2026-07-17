@@ -20,6 +20,7 @@
 | `hop <selection> sync` | `<selection> sync` | Action token. Auto-commits a dirty tree (fixed default message `chore: sync via hop` — no `-m` override in the reoriented form), then `git pull --rebase` then `git push` per target. Same resolution rules as `pull`. Two independent 10-minute timeouts per repo. Rebase `CONFLICT` emits a `resolve manually with: git -C <path> rebase --continue` hint and skips push; push failure emits `sync: <name> ✗ push failed: <err>`. Batch summary `summary: synced=N skipped=M failed=K`. | Exit codes match `pull`/`push`. |
 | `hop --all <verb>` / `hop <group> <verb>` | plural selection + batch verb | Plural selection: runs the batch verb (`pull`/`push`/`sync`) across every matched repo. `hop --all pull` replaces the former `hop pull --all`. A plural selection accepts ONLY the batch verbs — `cd`, `open`, tool-form, and a bare plural (no action) are refused with exit 2 (running an interactive action across many repos is not supported). | Exit codes match the batch verb; 2 when a non-batch action or no action is given on a plural selection |
 | `hop ls` | (none); `--trees` boolean flag | Default: print all repos as `name<spaces>path` columns. With `--trees`: fan `wt list --json` across configured cloned repos in YAML source order and emit per-row worktree summaries (`name<spaces>{N} tree(s)  (<wt-list>)` where each wt is `name[*][↑N]`). Non-cloned repos surface `(not cloned)` without invoking wt. Per-row `wt list` failures degrade as inline `(wt list failed: <err>)`; first `wt`-missing aborts the run with `hop: wt: not found on PATH.` | 0 success; 1 wt missing during `--trees` |
+| `hop rm [<name>]` | optional `<name>`; `--stale` boolean flag; `--dry-run` boolean flag | Remove a registered repo from `hop.yaml`. No positional → fzf picker (single-select) over registered repos; a `<name>` resolves via the shared match-or-fzf algorithm and removes directly (no picker, no on-disk check, no prompt). `--stale` pre-filters the picker to repos whose resolved path is missing from disk (cannot be combined with `<name>`). **`--dry-run`** resolves the target through the same path as a live removal but **writes nothing** — it previews `would remove: <url>` + `dry-run: no changes written` to stderr (or the forgiving `Nothing to remove.` when the URL/group is absent) and exits 0, leaving `hop.yaml` byte-for-byte unchanged (principle №5: a destructive write's `--dry-run` shares the real code path via `yamled.WouldRemoveURL`, the read-only half of `yamled.RemoveURL`). Status lines (`removed:`/`wrote:` on a live run, `would remove:`/`dry-run:` on a preview) go to stderr. `hop config rm [--stale] [--dry-run]` is a hidden picker-only alias. | 0 success / forgiving no-op (nothing to remove, nothing stale, not-found, successful dry-run preview incl. the forgiving not-found); 1 fzf missing / missing `hop.yaml` / write failure / dry-run preview failure (unreadable `hop.yaml`); 2 `--stale` combined with a name; 3 no TTY for the picker (live or dry-run); 130 fzf cancelled |
 | `hop shell-init <shell>` | `zsh` or `bash` (required) | Emit shell function wrapper + cobra-generated completion to stdout | 0 success, 2 unsupported shell |
 | `hop config init` | (none) | Bootstrap a starter `hop.yaml` at the resolved location | 0 written, 1 file exists, 2 write error |
 | `hop config where` | (none) | Print the resolved config path on stdout. Renamed from v0.0.1's `config path`. | 0 resolved, 1 unresolvable |
@@ -279,6 +280,24 @@ The YAML write is **comment-preserving and atomic** (temp file + rename via `int
 > **THEN** stdout shows 3 rows in YAML source order, each `name<spaces>path`, aligned (column-style)
 > **AND** exit code is 0
 > **AND** an empty `hop.yaml` produces no output (still exit 0)
+
+#### `hop rm <name> --dry-run` — preview a removal without writing
+
+> **GIVEN** `hop.yaml` registers `hop` and `wt` in the `default` group
+> **WHEN** I run `hop rm wt --dry-run`
+> **THEN** `wt` is resolved via the same match-or-fzf path a live `hop rm wt` uses
+> **AND** stderr shows `would remove: git@github.com:sahil87/wt.git` followed by `dry-run: no changes written`
+> **AND** no `removed:` / `wrote:` line is emitted
+> **AND** `hop.yaml` is byte-for-byte unchanged on disk
+> **AND** exit code is 0
+
+> **GIVEN** the same `hop.yaml`
+> **WHEN** I run `hop rm --dry-run` (no name — the picker path) and select `wt`
+> **THEN** the picked entry is previewed the same way (`would remove:` + `dry-run:`), `hop.yaml` is untouched, exit 0
+
+> **GIVEN** a resolved repo whose URL is not present in its group
+> **WHEN** the dry-run runs
+> **THEN** stderr shows the forgiving `... not found in <path>. Nothing to remove.` (same wording as the live path's not-found no-op) and exit code is 0 — the preview shares `yamled.RemoveURL`'s locate contract via `yamled.WouldRemoveURL`
 
 #### `hop shell-init <shell>`
 

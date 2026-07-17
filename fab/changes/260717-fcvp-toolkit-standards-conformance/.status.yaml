@@ -1,0 +1,55 @@
+id: fcvp
+name: 260717-fcvp-toolkit-standards-conformance
+created: 2026-07-17T20:17:05Z
+created_by: sahil-noon
+change_type: chore
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: active
+    review-pr: pending
+plan:
+    generated: true
+    task_count: 10
+    acceptance_count: 18
+    acceptance_completed: 18
+confidence:
+    certain: 7
+    confident: 0
+    tentative: 0
+    unresolved: 0
+    score: 5.0
+    fuzzy: true
+    dimensions:
+        signal: 86.4
+        reversibility: 88.6
+        competence: 90.7
+        disambiguation: 88.6
+stage_metrics:
+    intake: {started_at: "2026-07-17T20:17:05Z", driver: fab-new, iterations: 1, completed_at: "2026-07-17T20:21:41Z"}
+    apply: {started_at: "2026-07-17T20:21:41Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-17T20:35:49Z"}
+    review: {started_at: "2026-07-17T20:35:49Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-17T20:43:25Z"}
+    hydrate: {started_at: "2026-07-17T20:43:25Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-17T20:47:14Z"}
+    ship: {started_at: "2026-07-17T20:47:14Z", driver: fab-fff, iterations: 1}
+prs: []
+change_type_source: explicit
+true_impact:
+    added: 3
+    deleted: 3
+    net: 0
+    excluding:
+        added: 0
+        deleted: 0
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-07-17T20:47:14Z"
+    computed_at_stage: hydrate
+summary: help-dump envelope drops captured_at (shll v0.0.23); hop rm/config rm gain --dry-run preview; README command-ref URL corrected; toolkit-standards conformance audited with deferrals [clc4]/[qner]/[armh]
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-07-17T20:47:14Z

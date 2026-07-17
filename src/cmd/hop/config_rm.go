@@ -22,6 +22,12 @@ import (
 // a real fzf binary. Mirrors the listWorktrees / runInteractive seam idiom.
 var pickOne = fzf.Pick
 
+// dryRunNoChanges is the trailing stderr line a `--dry-run` removal prints in
+// place of the live `removed:`/`wrote:` status lines, signalling that the
+// preview shared the real resolution path but wrote nothing (principle №5:
+// destructive writes support an accurate --dry-run that touches no file).
+const dryRunNoChanges = "dry-run: no changes written"
+
 // rmLong is the cobra Long help for `hop rm [<name>]` and its hidden alias
 // `hop config rm [--stale]`.
 const rmLong = `Remove a registered repo from hop.yaml.
@@ -40,10 +46,15 @@ With --stale, the picker is pre-filtered to repos whose resolved path no longer
 exists on disk — the quick way to prune entries for repos you have deleted.
 --stale is a picker-scoping flag and cannot be combined with a <name>.
 
+With --dry-run, the target is resolved through the same path as a live removal
+but nothing is written — hop reports which entry it would remove and exits 0,
+leaving hop.yaml untouched.
+
 Examples:
-  hop rm           pick any registered repo to remove
-  hop rm widget    remove the repo matching 'widget' directly (no picker)
-  hop rm --stale   pick among only the repos missing from disk`
+  hop rm                 pick any registered repo to remove
+  hop rm widget          remove the repo matching 'widget' directly (no picker)
+  hop rm --stale         pick among only the repos missing from disk
+  hop rm widget --dry-run  preview the removal without writing hop.yaml`
 
 // newRmCmd returns the cobra factory for the canonical top-level
 // `hop rm [<name>]`. With no positional it drives the fzf picker; with a
@@ -51,6 +62,7 @@ Examples:
 // with a positional is a usage error (exit 2).
 func newRmCmd() *cobra.Command {
 	var stale bool
+	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "rm [<name>]",
 		Short: "remove a registered repo from hop.yaml",
@@ -64,10 +76,11 @@ func newRmCmd() *cobra.Command {
 			if name != "" && stale {
 				return &errExitCode{code: 2, msg: "hop rm: --stale cannot be combined with a repo name."}
 			}
-			return runRm(cmd, "hop rm", stale, name)
+			return runRm(cmd, "hop rm", stale, dryRun, name)
 		},
 	}
 	cmd.Flags().BoolVar(&stale, "stale", false, "limit the picker to repos whose resolved path no longer exists on disk")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "preview the removal without writing hop.yaml")
 	return cmd
 }
 
@@ -77,6 +90,7 @@ func newRmCmd() *cobra.Command {
 // and keeps emitting its "hop config rm:" stderr prefix.
 func newConfigRmCmd() *cobra.Command {
 	var stale bool
+	var dryRun bool
 	cmd := &cobra.Command{
 		Use:    "rm [--stale]",
 		Short:  "remove a registered repo from hop.yaml via an interactive picker",
@@ -84,10 +98,11 @@ func newConfigRmCmd() *cobra.Command {
 		Args:   cobra.NoArgs,
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runRm(cmd, "hop config rm", stale, "")
+			return runRm(cmd, "hop config rm", stale, dryRun, "")
 		},
 	}
 	cmd.Flags().BoolVar(&stale, "stale", false, "limit the picker to repos whose resolved path no longer exists on disk")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "preview the removal without writing hop.yaml")
 	return cmd
 }
 
@@ -96,10 +111,12 @@ func newConfigRmCmd() *cobra.Command {
 // alias). When name is non-empty it resolves the repo via resolveByName and
 // removes it directly (skipping the picker, no on-disk check, no prompt);
 // otherwise it loads the registry, optionally filters to stale repos, and runs
-// the fzf picker. Returns errSilent / errFzfCancelled on the relevant failure
-// paths; nil on success and on every forgiving no-op (nothing to remove,
-// nothing stale, RemoveURL not-found).
-func runRm(cmd *cobra.Command, cmdName string, stale bool, name string) error {
+// the fzf picker. When dryRun is set, the target is resolved via the same path
+// as a live removal but the YAML write is skipped (principle №5 preview).
+// Returns errSilent / errFzfCancelled on the relevant failure paths; nil on
+// success and on every forgiving no-op (nothing to remove, nothing stale,
+// RemoveURL not-found).
+func runRm(cmd *cobra.Command, cmdName string, stale, dryRun bool, name string) error {
 	stderr := cmd.ErrOrStderr()
 
 	// Precondition: resolve hop.yaml. On miss, mirror scan/add's two-line
@@ -141,7 +158,7 @@ func runRm(cmd *cobra.Command, cmdName string, stale bool, name string) error {
 			// missing fzf; errFzfCancelled and *errExitCode propagate verbatim.
 			return err
 		}
-		return removeRepo(stderr, cmdName, configPath, repo)
+		return removeRepo(stderr, cmdName, configPath, repo, dryRun)
 	}
 
 	cfg, err := config.Load(configPath)
@@ -178,14 +195,32 @@ func runRm(cmd *cobra.Command, cmdName string, stale bool, name string) error {
 		return err
 	}
 
-	return removeRepo(stderr, cmdName, configPath, repo)
+	return removeRepo(stderr, cmdName, configPath, repo, dryRun)
 }
 
 // removeRepo drops repo's URL from its group via yamled.RemoveURL and emits the
 // shared status lines. The forgiving not-found case (Assumption 10) reports +
 // exits 0; a real write failure returns errSilent. Shared by the picker path
 // and the positional <name> path so both speak the same stderr voice.
-func removeRepo(stderr io.Writer, cmdName, configPath string, repo *repos.Repo) error {
+//
+// When dryRun is set, it previews via yamled.WouldRemoveURL — the read-only
+// half of RemoveURL, so the same locate/not-found contract applies — and writes
+// nothing: it prints `would remove:` (+ a `dry-run: no changes written` line)
+// on a would-succeed, or the same forgiving "Nothing to remove." on a not-found,
+// exiting 0 in both cases (principle №5 preview).
+func removeRepo(stderr io.Writer, cmdName, configPath string, repo *repos.Repo, dryRun bool) error {
+	if dryRun {
+		if err := yamled.WouldRemoveURL(configPath, repo.Group, repo.URL); err != nil {
+			if errors.Is(err, yamled.ErrURLNotFound) || errors.Is(err, yamled.ErrGroupNotFound) {
+				fmt.Fprintf(stderr, "%s: %s not found in %s. Nothing to remove.\n", cmdName, repo.URL, configPath)
+				return nil
+			}
+			fmt.Fprintf(stderr, "%s: previewing removal from %s failed: %v\n", cmdName, configPath, err)
+			return errSilent
+		}
+		fmt.Fprintf(stderr, "would remove: %s\n%s\n", repo.URL, dryRunNoChanges)
+		return nil
+	}
 	if err := yamled.RemoveURL(configPath, repo.Group, repo.URL); err != nil {
 		if errors.Is(err, yamled.ErrURLNotFound) || errors.Is(err, yamled.ErrGroupNotFound) {
 			fmt.Fprintf(stderr, "%s: %s not found in %s. Nothing to remove.\n", cmdName, repo.URL, configPath)

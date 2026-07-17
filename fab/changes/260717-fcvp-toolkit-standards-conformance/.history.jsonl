@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-17T20:17:05Z"}
+{"args":"Bring this repo and its tool into conformance with the sahil87 toolkit standards: enumerate shll standards at runtime, audit against each, fix mechanical-contract violations and small additive principle gaps, defer larger gaps per repo convention, deliver one fab change whose PR body is a conformance report (per-standard PASS/gaps with dispositions, shll version audited).","cmd":"fab-new","event":"command","ts":"2026-07-17T20:17:05Z"}
+{"delta":"+5.0","event":"confidence","score":5,"trigger":"calc-score","ts":"2026-07-17T20:19:07Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-17T20:21:33Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-17T20:21:41Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-17T20:35:49Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-17T20:43:25Z"}
+{"event":"review","result":"passed","ts":"2026-07-17T20:43:25Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-17T20:47:14Z"}

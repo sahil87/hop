@@ -41,7 +41,7 @@ func findChild(node Node, name string) (Node, bool) {
 }
 
 // TestHelpDumpDocFields asserts the top-level document fields: tool, schema
-// version, version sourced from rootCmd.Version, and an empty captured_at.
+// version, and version sourced from rootCmd.Version.
 func TestHelpDumpDocFields(t *testing.T) {
 	_, doc := runHelpDump(t, "1.2.3")
 
@@ -54,9 +54,46 @@ func TestHelpDumpDocFields(t *testing.T) {
 	if doc.Version != "1.2.3" {
 		t.Errorf("version = %q, want %q (must reflect rootCmd.Version)", doc.Version, "1.2.3")
 	}
-	if doc.CapturedAt != "" {
-		t.Errorf("captured_at = %q, want empty (CI injects it)", doc.CapturedAt)
+}
+
+// TestHelpDumpEnvelopeShape asserts the emitted envelope matches the shll
+// help-dump standard exactly: keys {tool, version, schema_version, root} and
+// NO captured_at (the standard forbids it — the shll.ai puller owns the capture
+// timestamp). Asserting against the raw JSON, not the Go struct, so a
+// re-introduced captured_at field is caught even if the struct changes.
+func TestHelpDumpEnvelopeShape(t *testing.T) {
+	raw, _ := runHelpDump(t, "dev")
+
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &top); err != nil {
+		t.Fatalf("unmarshal help-dump envelope: %v\noutput:\n%s", err, raw)
 	}
+	if _, present := top["captured_at"]; present {
+		t.Errorf("captured_at present in envelope; the standard forbids it (the shll.ai puller stamps it)\noutput:\n%s", raw)
+	}
+	got := make(map[string]bool, len(top))
+	for k := range top {
+		got[k] = true
+	}
+	for _, want := range []string{"tool", "version", "schema_version", "root"} {
+		if !got[want] {
+			t.Errorf("envelope missing required key %q; got keys %v", want, keysOf(top))
+		}
+		delete(got, want)
+	}
+	for extra := range got {
+		t.Errorf("envelope has unexpected key %q; standard shape is {tool, version, schema_version, root}", extra)
+	}
+}
+
+// keysOf returns the sorted-order-independent key set of a raw-JSON object, for
+// error messages.
+func keysOf(m map[string]json.RawMessage) []string {
+	ks := make([]string, 0, len(m))
+	for k := range m {
+		ks = append(ks, k)
+	}
+	return ks
 }
 
 // TestHelpDumpVersionNotHardcoded asserts version tracks whatever the root's
