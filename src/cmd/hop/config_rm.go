@@ -85,14 +85,14 @@ func newRmCmd() *cobra.Command {
 }
 
 // newConfigRmCmd returns the cobra factory for the hidden alias
-// `hop config rm [--stale]`. It shares runRm with the canonical top-level
-// command but is Hidden, accepts no positional (the historical NoArgs shape),
-// and keeps emitting its "hop config rm:" stderr prefix.
+// `hop config rm [--stale] [--dry-run]`. It shares runRm with the canonical
+// top-level command but is Hidden, accepts no positional (the historical NoArgs
+// shape), and keeps emitting its "hop config rm:" stderr prefix.
 func newConfigRmCmd() *cobra.Command {
 	var stale bool
 	var dryRun bool
 	cmd := &cobra.Command{
-		Use:    "rm [--stale]",
+		Use:    "rm [--stale] [--dry-run]",
 		Short:  "remove a registered repo from hop.yaml via an interactive picker",
 		Long:   rmLong,
 		Args:   cobra.NoArgs,

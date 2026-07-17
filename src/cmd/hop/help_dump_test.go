@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -86,13 +87,15 @@ func TestHelpDumpEnvelopeShape(t *testing.T) {
 	}
 }
 
-// keysOf returns the sorted-order-independent key set of a raw-JSON object, for
-// error messages.
+// keysOf returns the sorted key set of a raw-JSON object, for error messages.
+// Sorting makes failure output deterministic regardless of Go's map iteration
+// order.
 func keysOf(m map[string]json.RawMessage) []string {
 	ks := make([]string, 0, len(m))
 	for k := range m {
 		ks = append(ks, k)
 	}
+	sort.Strings(ks)
 	return ks
 }
 
