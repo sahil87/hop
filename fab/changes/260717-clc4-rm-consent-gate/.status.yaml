@@ -10,7 +10,7 @@ progress:
     review: done
     hydrate: done
     ship: done
-    review-pr: active
+    review-pr: done
 plan:
     generated: true
     task_count: 9
@@ -34,7 +34,7 @@ stage_metrics:
     review: {started_at: "2026-07-17T21:57:39Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-17T22:06:07Z"}
     hydrate: {started_at: "2026-07-17T22:06:07Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-17T22:16:50Z"}
     ship: {started_at: "2026-07-17T22:16:50Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-17T22:21:26Z"}
-    review-pr: {started_at: "2026-07-17T22:21:26Z", driver: git-pr, iterations: 1}
+    review-pr: {started_at: "2026-07-17T22:21:26Z", driver: git-pr, iterations: 1, completed_at: "2026-07-17T22:31:33Z"}
 prs:
     - https://github.com/sahil87/hop/pull/52
 change_type_source: explicit
@@ -54,4 +54,4 @@ true_impact:
     computed_at_stage: ship
 summary: 'Add a consent gate to ''hop rm <name>'': TTY [y/N] prompt with match preview, --yes/-y for automation, no-TTY refusal (errConsentRequired → exit 3); picker paths stay ungated'
 # true_impact: lazily created on first stage-finish that computes it (no placeholder here).
-last_updated: 2026-07-17T22:21:26Z
+last_updated: 2026-07-17T22:31:33Z
