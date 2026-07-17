@@ -14,6 +14,10 @@ local-install:
 test:
     cd src && go test ./...
 
+# Refresh the embedded copy of docs/site/skill.md (run after editing the bundle).
+sync-skill:
+    ./scripts/sync-skill.sh
+
 # Cut a release: compute next semver tag from `git describe`, push the tag.
 # CI (.github/workflows/release.yml) takes over from there to cross-compile,
 # create the GitHub Release, and update the Homebrew tap. Working tree must be clean.

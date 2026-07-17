@@ -1,5 +1,5 @@
 ---
-description: "Driving `hop` from an AI agent or CI with no TTY: the four 1x1u guarantees — partial-capture-immune single-function shim, `hop ls --json` registry-as-data, no-TTY exit 3 (distinct from 130), and `HOP_WRAPPER` hint suppression; recommended invocation patterns (incl. `hop rm --dry-run` mutation preview) and exit codes"
+description: "Driving `hop` from an AI agent or CI with no TTY: the four 1x1u guarantees — partial-capture-immune single-function shim, `hop ls --json` registry-as-data, no-TTY exit 3 (distinct from 130), and `HOP_WRAPPER` hint suppression; recommended invocation patterns (incl. `hop skill` orientation bundle and `hop rm --dry-run` mutation preview) and exit codes"
 type: memory
 ---
 # Agent / Non-Interactive Usage
@@ -32,6 +32,7 @@ This is an **orientation note**: the authoritative details live in the per-domai
 - **Enumerate**: `hop ls --json` (registry as data) or `hop ls --json --trees` (with per-repo worktree state). Always valid JSON — an empty registry emits `[]`.
 - **Resolve a path**: `hop <name> where` (prints the absolute path to stdout; reached via PASSTHROUGH, scriptable). Pass an exact/unambiguous name to avoid the picker. A no-name or ambiguous query with no TTY exits 3, not 130.
 - **Preview a destructive write**: `hop rm <name> --dry-run` (change `260717-fcvp-toolkit-standards-conformance`) resolves the target through the exact live-removal path but **writes nothing** — it prints `would remove: <url>` + `dry-run: no changes written` to stderr and exits 0, leaving `hop.yaml` byte-for-byte unchanged. An agent about to mutate the registry can confirm the target first; because the preview shares the real code path (`yamled.WouldRemoveURL`, the read-only half of `RemoveURL`), it cannot drift from what a live `hop rm <name>` would do. **Name the target** — a bare `hop rm --dry-run` still reaches the picker and exits 3 with no TTY. (`hop rm` performs no consent prompt; `--dry-run` is the preview, not a confirmation gate — the mandatory-consent question is deferred, backlog `[clc4]`.)
+- **Orient with the skill bundle**: `hop skill` (change `armh`) prints a stable, ≤150-line usage briefing to stdout (byte-identical to the embedded `docs/site/skill.md`) — when/why to reach for hop, the `hop <selection> <action>` capabilities map, composition patterns, the exit-code contract, and the gotchas — all in one offline, version-locked read. It is the recommended **first call** for an agent meeting hop for the first time: raw markdown to stdout, stderr empty, exit 0, `cobra.NoArgs`, always TTY-free (no fzf, no state). Because the prose is embedded in the same binary as the flags it describes, it can never document a capability the installed binary lacks. Details: [subcommands § hop skill](/cli/subcommands.md#hop-skill--agent-skill-bundle).
 - **Do NOT rely on**: bare `hop` (the picker — exit 3 with no TTY), tool-form `hop <name> <tool>` (shell-only — the binary returns exit 2; with `HOP_WRAPPER` set the hint text is suppressed but the exit code stays 2). Scripts run tools themselves after resolving the path via `hop <name> where`.
 
 ## Exit codes an agent should distinguish
@@ -50,4 +51,5 @@ Full table and triggers: [subcommands § exit-code convention](/cli/subcommands.
 
 - Shim shape + `tty.go` seam: [architecture/package-layout](/architecture/package-layout.md)
 - `--json` schema, `HOP_WRAPPER`, exit codes: [cli/subcommands](/cli/subcommands.md)
+- `hop skill` embedded agent bundle (invocation contract + embed mechanism): [cli/subcommands § hop skill](/cli/subcommands.md#hop-skill--agent-skill-bundle)
 - The TTY guard on the fzf seams: [cli/match-resolution](/cli/match-resolution.md)
