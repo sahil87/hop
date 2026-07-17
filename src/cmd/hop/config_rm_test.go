@@ -457,3 +457,107 @@ func exit130Error(t *testing.T) error {
 	}
 	return err
 }
+
+// TestTopLevelRmByNameDryRunPreviewsWithoutWriting asserts `hop rm <name>
+// --dry-run` resolves the target via the same path as a live removal, reports
+// what it would remove, and leaves hop.yaml byte-for-byte unchanged, exiting 0
+// (principle №5: destructive writes support an accurate, no-write --dry-run).
+func TestTopLevelRmByNameDryRunPreviewsWithoutWriting(t *testing.T) {
+	yaml := `repos:
+  default:
+    - git@github.com:sahil87/hop.git
+    - git@github.com:sahil87/wt.git
+`
+	path := writeReposFixture(t, yaml)
+	original, _ := os.ReadFile(path)
+
+	withPickOne(t, func(ctx context.Context, lines []string, query string) (string, error) {
+		t.Fatalf("picker invoked on `hop rm <name> --dry-run` path; lines=%v", lines)
+		return "", nil
+	})
+
+	_, stderr, err := runArgs(t, "rm", "wt", "--dry-run")
+	if err != nil {
+		t.Fatalf("hop rm wt --dry-run: %v", err)
+	}
+	if !strings.Contains(stderr.String(), "would remove: git@github.com:sahil87/wt.git") {
+		t.Errorf("expected would-remove preview line; stderr=%q", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), dryRunNoChanges) {
+		t.Errorf("expected %q line; stderr=%q", dryRunNoChanges, stderr.String())
+	}
+	if strings.Contains(stderr.String(), "removed:") || strings.Contains(stderr.String(), "wrote:") {
+		t.Errorf("dry-run must not emit live removed:/wrote: lines; stderr=%q", stderr.String())
+	}
+	// File byte-for-byte unchanged (A-009).
+	got, _ := os.ReadFile(path)
+	if string(got) != string(original) {
+		t.Errorf("hop.yaml modified by --dry-run; got:\n%s\nwant:\n%s", got, original)
+	}
+}
+
+// TestConfigRmPickerDryRunPreviewsWithoutWriting asserts the picker path
+// (`hop rm --dry-run`, no positional) previews the fzf-selected entry via the
+// real buildPickerLines → map-back resolution but writes nothing.
+func TestConfigRmPickerDryRunPreviewsWithoutWriting(t *testing.T) {
+	yaml := `repos:
+  default:
+    - git@github.com:sahil87/hop.git
+    - git@github.com:sahil87/wt.git
+`
+	path := writeReposFixture(t, yaml)
+	original, _ := os.ReadFile(path)
+
+	withIsTTY(t, true)
+	withPickOne(t, pickLineContaining(t, "git@github.com:sahil87/wt.git"))
+
+	_, stderr, err := runArgs(t, "rm", "--dry-run")
+	if err != nil {
+		t.Fatalf("hop rm --dry-run: %v", err)
+	}
+	if !strings.Contains(stderr.String(), "would remove: git@github.com:sahil87/wt.git") {
+		t.Errorf("expected would-remove preview for the picked entry; stderr=%q", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), dryRunNoChanges) {
+		t.Errorf("expected %q line; stderr=%q", dryRunNoChanges, stderr.String())
+	}
+	got, _ := os.ReadFile(path)
+	if string(got) != string(original) {
+		t.Errorf("hop.yaml modified by picker --dry-run; got:\n%s", got)
+	}
+}
+
+// TestRmByNameDryRunForgivingNotFound asserts the edge case (A-013): a --dry-run
+// against a repo whose URL is NOT in its group previews "Nothing to remove."
+// without erroring and exits 0 — mirroring the live path's forgiving not-found
+// contract (WouldRemoveURL shares removeURLFromTree's ErrURLNotFound sentinel).
+// It drives removeRepo directly — the shared body runRm calls — with a repo
+// carrying an unregistered URL, so the not-found branch is exercised without
+// depending on resolveByName's match behavior.
+func TestRmByNameDryRunForgivingNotFound(t *testing.T) {
+	parent := t.TempDir()
+	yaml := fmt.Sprintf(`repos:
+  default:
+    dir: %s
+    urls:
+      - git@github.com:org/present.git
+`, parent)
+	path := writeReposFixture(t, yaml)
+	original, _ := os.ReadFile(path)
+
+	r := &repos.Repo{Name: "present", Group: "default", URL: "git@github.com:org/unregistered.git", Path: filepath.Join(parent, "present")}
+	var stderr strings.Builder
+	if err := removeRepo(&stderr, "hop rm", path, r, true); err != nil {
+		t.Fatalf("dry-run removeRepo on unregistered URL should be a forgiving no-op: %v", err)
+	}
+	if !strings.Contains(stderr.String(), "Nothing to remove.") {
+		t.Errorf("expected forgiving not-found preview; stderr=%q", stderr.String())
+	}
+	if strings.Contains(stderr.String(), "would remove:") {
+		t.Errorf("must not claim a would-remove for an unregistered URL; stderr=%q", stderr.String())
+	}
+	got, _ := os.ReadFile(path)
+	if string(got) != string(original) {
+		t.Errorf("hop.yaml modified by not-found dry-run; got:\n%s", got)
+	}
+}

@@ -738,6 +738,61 @@ func TestRemoveURLGroupNotFoundIsForgiving(t *testing.T) {
 	}
 }
 
+// --- WouldRemoveURL tests -------------------------------------------------
+
+// TestWouldRemoveURLReportsRemovableWithoutWriting asserts the read-only preview
+// half of RemoveURL: it returns nil for a URL that IS present, and never writes
+// (the file is byte-for-byte unchanged) — the contract `hop rm --dry-run` relies
+// on to preview through the same locate logic the live path runs.
+func TestWouldRemoveURLReportsRemovableWithoutWriting(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "hop.yaml")
+	original := `repos:
+  default:
+    - git@github.com:sahil87/hop.git
+    - git@github.com:sahil87/wt.git
+`
+	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	if err := WouldRemoveURL(path, "default", "git@github.com:sahil87/wt.git"); err != nil {
+		t.Errorf("WouldRemoveURL on a present URL: want nil, got %v", err)
+	}
+	// The preview must NOT write — file byte-for-byte unchanged.
+	got, _ := os.ReadFile(path)
+	if string(got) != original {
+		t.Errorf("WouldRemoveURL modified the file; got:\n%s", got)
+	}
+}
+
+// TestWouldRemoveURLForgivingSentinels asserts WouldRemoveURL surfaces the same
+// ErrURLNotFound / ErrGroupNotFound sentinels as RemoveURL for a missing URL and
+// a missing group, still writing nothing — so the caller's forgiving no-op
+// branch fires identically for a live removal and a dry-run.
+func TestWouldRemoveURLForgivingSentinels(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "hop.yaml")
+	original := `repos:
+  default:
+    - git@github.com:sahil87/hop.git
+`
+	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	if err := WouldRemoveURL(path, "default", "git@github.com:nobody/missing.git"); !errors.Is(err, ErrURLNotFound) {
+		t.Errorf("missing URL: want ErrURLNotFound, got %v", err)
+	}
+	if err := WouldRemoveURL(path, "experiments", "git@github.com:sahil87/hop.git"); !errors.Is(err, ErrGroupNotFound) {
+		t.Errorf("missing group: want ErrGroupNotFound, got %v", err)
+	}
+	got, _ := os.ReadFile(path)
+	if string(got) != original {
+		t.Errorf("WouldRemoveURL modified the file on a not-found preview; got:\n%s", got)
+	}
+}
+
 // --- EnsureGroup tests ----------------------------------------------------
 
 func TestEnsureGroupCreatesWhenAbsentOnSkeleton(t *testing.T) {

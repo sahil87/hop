@@ -6,21 +6,21 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// helpDumpSchemaVersion is the version of the help/<tool>.json contract this
-// producer emits. It is pinned to the frozen shll.ai contract (see
-// help/wt.json reference); bump only when the document shape changes.
+// helpDumpSchemaVersion is the version of the help-dump JSON contract this
+// producer emits. It is pinned to the shll help-dump standard (schema_version
+// 1); bump only when the document shape changes, adding new fields as optional.
 const helpDumpSchemaVersion = 1
 
-// Doc is the top-level help-dump document. Field order matches the frozen
-// shll.ai contract: tool, version, captured_at, schema_version, root.
+// Doc is the top-level help-dump document. Its shape is the envelope the shll
+// help-dump standard requires: exactly {tool, version, schema_version, root}.
+// The standard explicitly forbids a captured_at field — the capture timestamp
+// is owned by the shll.ai puller, which stamps it after capture (a tool cannot
+// know its own capture time), so the producer MUST NOT emit it.
 type Doc struct {
 	Tool string `json:"tool"`
 	// Version is read from rootCmd.Version (ldflag-injected main.version);
 	// "dev" in an unstamped local build. Never hardcoded.
-	Version string `json:"version"`
-	// CapturedAt is left empty by the producer to keep the dump
-	// deterministic/testable; CI injects a date-floored UTC value.
-	CapturedAt    string `json:"captured_at"`
+	Version       string `json:"version"`
 	SchemaVersion int    `json:"schema_version"`
 	Root          Node   `json:"root"`
 }
@@ -42,7 +42,6 @@ func buildHelpDoc(root *cobra.Command) Doc {
 	return Doc{
 		Tool:          "hop",
 		Version:       root.Version,
-		CapturedAt:    "",
 		SchemaVersion: helpDumpSchemaVersion,
 		Root:          buildNode(root),
 	}

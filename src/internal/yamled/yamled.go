@@ -118,17 +118,8 @@ func appendURLToTree(root *yaml.Node, group, url, path string) error {
 // normalized to yaml.v3's defaults on round-trip — comment preservation is the
 // contract, byte-perfect formatting is not.
 func RemoveURL(path, group, url string) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("yamled: read %s: %w", path, err)
-	}
-
 	var root yaml.Node
-	if err := yaml.Unmarshal(data, &root); err != nil {
-		return fmt.Errorf("yamled: parse %s: %w", path, err)
-	}
-
-	if err := removeURLFromTree(&root, group, url, path); err != nil {
+	if err := loadAndRemoveFromTree(path, group, url, &root); err != nil {
 		return err
 	}
 
@@ -138,6 +129,33 @@ func RemoveURL(path, group, url string) error {
 	}
 
 	return atomicWrite(path, out)
+}
+
+// WouldRemoveURL reports whether RemoveURL(path, group, url) would remove
+// something, WITHOUT writing anything — the read-only half of RemoveURL, used
+// by `hop rm --dry-run` to preview a removal through the same locate logic the
+// live path runs (principle №5: a dry-run must share the real code path).
+// Returns nil when the url would be removed; wraps ErrGroupNotFound /
+// ErrURLNotFound (via the shared removeURLFromTree) when nothing matches — the
+// same forgiving sentinels callers already branch on for the live path.
+func WouldRemoveURL(path, group, url string) error {
+	var root yaml.Node
+	return loadAndRemoveFromTree(path, group, url, &root)
+}
+
+// loadAndRemoveFromTree reads+parses path and applies removeURLFromTree to
+// root, returning its read/parse/locate error (or nil). It is the shared
+// front-half of RemoveURL (which then marshals+writes) and WouldRemoveURL
+// (which stops here) — one source of truth for the locate contract.
+func loadAndRemoveFromTree(path, group, url string, root *yaml.Node) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("yamled: read %s: %w", path, err)
+	}
+	if err := yaml.Unmarshal(data, root); err != nil {
+		return fmt.Errorf("yamled: parse %s: %w", path, err)
+	}
+	return removeURLFromTree(root, group, url, path)
 }
 
 // removeURLFromTree mutates the parsed tree in place: locate repos.<group>,
