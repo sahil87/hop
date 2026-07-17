@@ -90,7 +90,7 @@ The gap: `hop rm` (and its hidden `hop config rm` alias) mutate `hop.yaml` — a
 registry write — but supported **no `--dry-run`** (verified: `hop rm alpha --dry-run` →
 `unknown flag: --dry-run`). Principle №5 requires a destructive write to support an
 accurate `--dry-run` that shares the real code path.
-- **Fixed here**: added a `--dry-run` bool flag to both `hop rm [<name>]` and the hidden
+- **Fixed here** (`ae02f34`): added a `--dry-run` bool flag to both `hop rm [<name>]` and the hidden
   `hop config rm` alias. A dry-run resolves the target through the exact same path as a
   live removal and previews `would remove: <url>` + `dry-run: no changes written` on
   stderr, writing nothing (exit 0). It shares the live code path via the new
@@ -180,7 +180,7 @@ injects it (a grep of `.github/` finds no help-dump publish step — the `[jr5f]
 job referenced an older frozen contract that included `captured_at`; the current standard
 supersedes it).
 
-- **Fixed here**: removed the `CapturedAt` field from the `Doc` struct and `buildHelpDoc`
+- **Fixed here** (`ae02f34`): removed the `CapturedAt` field from the `Doc` struct and `buildHelpDoc`
   in `src/cmd/hop/help_dump.go`; updated the doc comments to state the standard's envelope
   and its explicit no-`captured_at` rule. Test updated in `src/cmd/hop/help_dump_test.go`:
   the old `captured_at == ""` assertion is replaced by `TestHelpDumpEnvelopeShape`, which
@@ -221,7 +221,7 @@ The extra `/tools/` segment is a live broken link against the site's `/<tool>/�
 scheme (standards themselves render at `/shll/standards/…`, confirming no `/tools/`
 prefix). All other checklist items PASS.
 
-- **Fixed here**: `README.md` — changed the command-reference link to
+- **Fixed here** (`ae02f34`): `README.md` — changed the command-reference link to
   `https://shll.ai/hop/commands/`.
 
 The `docs/site/` closure rules (no `..` escapes, external links absolute-by-author, all
@@ -249,11 +249,11 @@ No `hop skill` code was added.
 | Standard | Disposition |
 |----------|-------------|
 | principles №1–4, 6–9 | **PASS** (no change) |
-| principles №5 `--dry-run` | **Fixed here** — `src/cmd/hop/config_rm.go`, `src/internal/yamled/yamled.go` (+ tests, spec) |
+| principles №5 `--dry-run` | **Fixed here** — `ae02f34` — `src/cmd/hop/config_rm.go`, `src/internal/yamled/yamled.go` (+ tests, spec) |
 | principles №5 consent | **Deferred → `[clc4]`** |
 | principles №10 CLAUDE.md/AGENTS.md | **Deferred → `[qner]`** |
-| help-dump `captured_at` | **Fixed here** — `src/cmd/hop/help_dump.go` (+ test) |
-| readme-extraction command URL | **Fixed here** — `README.md` |
+| help-dump `captured_at` | **Fixed here** — `ae02f34` — `src/cmd/hop/help_dump.go` (+ test) |
+| readme-extraction command URL | **Fixed here** — `ae02f34` — `README.md` |
 | skill | **Deferred, not yet adopted → `[armh]`** |
 
 **Files changed**: `src/cmd/hop/help_dump.go`, `src/cmd/hop/help_dump_test.go`,
@@ -262,4 +262,6 @@ No `hop skill` code was added.
 `docs/specs/cli-surface.md`, `fab/backlog.md`.
 
 **Tests**: `cd src && go test ./...` — all packages PASS; `go vet ./...` clean.
-Commit hashes are added at ship time.
+
+**Commit**: all fixes above landed in `ae02f34` — "chore: audit hop against sahil87
+toolkit standards (shll v0.0.23)".
