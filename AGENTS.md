@@ -29,4 +29,5 @@ standard — do not work from summaries or restatements.
 - Source lives under `src/` (`src/cmd/hop`, `src/internal/*`); build with
   `just build`, test with `just test`
 - Changes flow through the fab pipeline: `fab/project/constitution.md` holds
-  the binding project principles; `/fab-*` skills live in `.claude/skills/`
+  the binding project principles; the `/fab-*` skills that drive it are
+  deployed by `fab sync` (not committed to the repo)
