@@ -1,0 +1,10 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-17T21:39:04Z"}
+{"args":"qner","cmd":"fab-new","event":"command","ts":"2026-07-17T21:39:04Z"}
+{"delta":"+4.3","event":"confidence","score":4.3,"trigger":"calc-score","ts":"2026-07-17T21:40:46Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-17T21:42:47Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-17T21:42:59Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-17T21:47:53Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-17T21:53:18Z"}
+{"event":"review","result":"passed","ts":"2026-07-17T21:53:18Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-17T21:54:53Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-17T23:25:32Z"}
