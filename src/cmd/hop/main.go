@@ -41,13 +41,16 @@ func main() {
 // translateExit maps errors returned from RunE to the spec's exit codes.
 // Exit codes per docs/specs/cli-surface.md §"Exit Code Conventions":
 //
-//	0 success, 1 application error, 2 usage error, 3 no TTY, 130 user cancelled.
+//	0 success, 1 application error, 2 usage error, 3 no TTY / consent refusal, 130 user cancelled.
 //
 // Sentinels:
-//   - errNoTTY         → 3 (interactive selection requested with no terminal)
-//   - errFzfCancelled  → 130
-//   - errSilent        → 1 (caller already wrote stderr)
-//   - errExitCode{...} → custom code (used by `hop cd` to exit 2, `shell-init` for 2, etc.)
+//   - errNoTTY           → 3 (interactive selection requested with no terminal)
+//   - errConsentRequired → 3 (`hop rm <name>` reached its consent gate with no
+//     terminal and no --yes; the command already wrote the consent-specific
+//     stderr message naming --yes, so this arm only supplies the exit code)
+//   - errFzfCancelled    → 130
+//   - errSilent          → 1 (caller already wrote stderr)
+//   - errExitCode{...}   → custom code (used by `hop cd` to exit 2, `shell-init` for 2, etc.)
 //
 // Default: print the error to stderr and exit 1.
 func translateExit(err error) int {
@@ -63,6 +66,11 @@ func translateExit(err error) int {
 	}
 	if errors.Is(err, errNoTTY) {
 		fmt.Fprintln(os.Stderr, noTTYHint)
+		return 3
+	}
+	if errors.Is(err, errConsentRequired) {
+		// runRm already wrote the consent-specific message (naming --yes) to
+		// stderr with the command-name prefix; this arm only maps to exit 3.
 		return 3
 	}
 	if errors.Is(err, errFzfCancelled) {

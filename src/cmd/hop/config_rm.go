@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -28,6 +29,28 @@ var pickOne = fzf.Pick
 // destructive writes support an accurate --dry-run that touches no file).
 const dryRunNoChanges = "dry-run: no changes written"
 
+// abortedNoChanges is the stderr line printed when the interactive consent
+// prompt on `hop rm <name>` is declined (bare Enter — the [y/N] default — or any
+// non-affirmative input). An answered "no" is a benign no-op, so removal writes
+// nothing and exits 0 (hop's forgiving exit-0 convention), NOT 130 (that is an
+// fzf-style user cancellation, which this is not).
+const abortedNoChanges = "aborted: no changes written"
+
+// errConsentRequired signals that `hop rm <name>` reached the consent gate with
+// no controlling TTY to prompt on and no `--yes` (and no `--dry-run`, which is
+// checked first and needs no consent). It maps to exit 3 in translateExit
+// (main.go) — reusing hop's documented "a terminal was required and none is
+// present" code — but carries a consent-specific message (consentRequiredMsg)
+// naming --yes, NOT the generic noTTYHint (whose "pass a repo name" advice is
+// wrong here: a name was already passed). It is distinct from errNoTTY (the
+// picker's no-TTY refusal) so each surfaces the correct next step.
+var errConsentRequired = errors.New("consent required for removal")
+
+// consentRequiredMsg is the exact stderr line printed on the no-TTY consent
+// refusal (change clc4). It follows the what/why/next shape and hop's
+// cmdName-prefixed stderr voice; the prefix is threaded in by runRm.
+const consentRequiredMsg = "consent required for removal — re-run with --yes (or preview with --dry-run)"
+
 // rmLong is the cobra Long help for `hop rm [<name>]` and its hidden alias
 // `hop config rm [--stale]`.
 const rmLong = `Remove a registered repo from hop.yaml.
@@ -39,6 +62,14 @@ directly — naming a repo prunes it even if its folder is already gone. Removal
 always targets a whole repo entry; any '/<worktree>' suffix on <name> is
 ignored (worktrees are not registry entries).
 
+Because 'hop rm <name>' writes the registry, it asks for consent first. On a
+terminal it shows the resolved match and prompts 'Proceed? [y/N]' (default No);
+answer y/yes to remove, anything else aborts with no change. Pass --yes/-y to
+skip the prompt (for scripts and agents). With no terminal and no --yes, the
+removal is refused (exit 3) rather than run unattended — re-run with --yes, or
+preview with --dry-run. The interactive picker (no <name>) needs no prompt: the
+pick itself is the consent.
+
 Removing a group's last URL leaves the (now-empty) group as a placeholder, so
 it stays a valid 'hop clone --group' target.
 
@@ -48,11 +79,13 @@ exists on disk — the quick way to prune entries for repos you have deleted.
 
 With --dry-run, the target is resolved through the same path as a live removal
 but nothing is written — hop reports which entry it would remove and exits 0,
-leaving hop.yaml untouched.
+leaving hop.yaml untouched. --dry-run needs no consent (it writes nothing), so
+it is never prompted or refused.
 
 Examples:
   hop rm                 pick any registered repo to remove
-  hop rm widget          remove the repo matching 'widget' directly (no picker)
+  hop rm widget          remove the repo matching 'widget' (prompts on a terminal)
+  hop rm widget --yes    remove without the confirmation prompt
   hop rm --stale         pick among only the repos missing from disk
   hop rm widget --dry-run  preview the removal without writing hop.yaml`
 
@@ -63,6 +96,7 @@ Examples:
 func newRmCmd() *cobra.Command {
 	var stale bool
 	var dryRun bool
+	var yes bool
 	cmd := &cobra.Command{
 		Use:   "rm [<name>]",
 		Short: "remove a registered repo from hop.yaml",
@@ -76,18 +110,22 @@ func newRmCmd() *cobra.Command {
 			if name != "" && stale {
 				return &errExitCode{code: 2, msg: "hop rm: --stale cannot be combined with a repo name."}
 			}
-			return runRm(cmd, "hop rm", stale, dryRun, name)
+			return runRm(cmd, "hop rm", stale, dryRun, yes, name)
 		},
 	}
 	cmd.Flags().BoolVar(&stale, "stale", false, "limit the picker to repos whose resolved path no longer exists on disk")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "preview the removal without writing hop.yaml")
+	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "skip the confirmation prompt on 'hop rm <name>' (consent for automation)")
 	return cmd
 }
 
 // newConfigRmCmd returns the cobra factory for the hidden alias
 // `hop config rm [--stale] [--dry-run]`. It shares runRm with the canonical
 // top-level command but is Hidden, accepts no positional (the historical NoArgs
-// shape), and keeps emitting its "hop config rm:" stderr prefix.
+// shape), and keeps emitting its "hop config rm:" stderr prefix. It registers NO
+// --yes flag: the alias is picker-only, so it has no consent point (its consent
+// is the pick), and a meaningless flag would be surface bloat (Constitution VI).
+// It passes yes=false to runRm, which is irrelevant on the picker path anyway.
 func newConfigRmCmd() *cobra.Command {
 	var stale bool
 	var dryRun bool
@@ -98,7 +136,7 @@ func newConfigRmCmd() *cobra.Command {
 		Args:   cobra.NoArgs,
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runRm(cmd, "hop config rm", stale, dryRun, "")
+			return runRm(cmd, "hop config rm", stale, dryRun, false, "")
 		},
 	}
 	cmd.Flags().BoolVar(&stale, "stale", false, "limit the picker to repos whose resolved path no longer exists on disk")
@@ -109,14 +147,18 @@ func newConfigRmCmd() *cobra.Command {
 // runRm removes a registered repo from hop.yaml. cmdName is the per-path stderr
 // prefix ("hop rm" for the canonical command, "hop config rm" for the hidden
 // alias). When name is non-empty it resolves the repo via resolveByName and
-// removes it directly (skipping the picker, no on-disk check, no prompt);
-// otherwise it loads the registry, optionally filters to stale repos, and runs
-// the fzf picker. When dryRun is set, the target is resolved via the same path
-// as a live removal but the YAML write is skipped (principle №5 preview).
-// Returns errSilent / errFzfCancelled on the relevant failure paths; nil on
-// success and on every forgiving no-op (nothing to remove, nothing stale,
-// RemoveURL not-found).
-func runRm(cmd *cobra.Command, cmdName string, stale, dryRun bool, name string) error {
+// removes it directly (skipping the picker, no on-disk check) — gated by a
+// consent step (change clc4): --dry-run needs no consent (checked first), then
+// --yes skips the prompt, then a missing TTY refuses (errConsentRequired →
+// exit 3), else an interactive [y/N] prompt runs. When name is empty it loads
+// the registry, optionally filters to stale repos, and runs the fzf picker (the
+// pick is itself the consent, so yes is ignored there). When dryRun is set, the
+// target is resolved via the same path as a live removal but the YAML write is
+// skipped (principle №5 preview). Returns errSilent / errFzfCancelled /
+// errConsentRequired on the relevant failure paths; nil on success and on every
+// forgiving no-op (nothing to remove, nothing stale, RemoveURL not-found, a
+// declined prompt).
+func runRm(cmd *cobra.Command, cmdName string, stale, dryRun, yes bool, name string) error {
 	stderr := cmd.ErrOrStderr()
 
 	// Precondition: resolve hop.yaml. On miss, mirror scan/add's two-line
@@ -157,6 +199,24 @@ func runRm(cmd *cobra.Command, cmdName string, stale, dryRun bool, name string) 
 			// resolveOne already wrote fzfMissingHint + returned errSilent on
 			// missing fzf; errFzfCancelled and *errExitCode propagate verbatim.
 			return err
+		}
+		// Consent gate (change clc4). Order matters:
+		//   1. --dry-run writes nothing, so it needs no consent — take the
+		//      (unchanged) preview path before the gate.
+		//   2. --yes is flag-based consent (principle №1) — skip the prompt.
+		//   3. No TTY and no --yes → refuse fast (no hang, no unattended write)
+		//      with a consent-specific message naming --yes → exit 3.
+		//   4. Otherwise prompt on the terminal; a declined prompt is a benign
+		//      exit-0 no-op.
+		if !dryRun && !yes {
+			if !isTTY() {
+				fmt.Fprintf(stderr, "%s: %s\n", cmdName, consentRequiredMsg)
+				return errConsentRequired
+			}
+			if !confirmRemoval(cmd, stderr, repo) {
+				fmt.Fprintln(stderr, abortedNoChanges)
+				return nil
+			}
 		}
 		return removeRepo(stderr, cmdName, configPath, repo, dryRun)
 	}
@@ -231,6 +291,26 @@ func removeRepo(stderr io.Writer, cmdName, configPath string, repo *repos.Repo, 
 	}
 	fmt.Fprintf(stderr, "removed: %s\nwrote: %s\n", repo.URL, configPath)
 	return nil
+}
+
+// confirmRemoval runs the interactive consent prompt for `hop rm <name>` on a
+// terminal (change clc4). It writes the resolved match preview and a
+// `Proceed? [y/N]` prompt to stderr (stdout stays empty — principle №2), then
+// reads a single line from cmd.InOrStdin() (cobra's injectable stdin, so
+// seam-injected tests feed input without a PTY). It returns true only for a
+// trimmed, case-insensitive `y`/`yes`; everything else — including bare Enter
+// (the [y/N] default is No) and a read error / EOF — returns false. No
+// subprocess is spawned and the input never reaches a shell (Constitution I).
+func confirmRemoval(cmd *cobra.Command, stderr io.Writer, repo *repos.Repo) bool {
+	fmt.Fprintf(stderr, "remove: %s  (%s)\n", repo.Name, repo.URL)
+	fmt.Fprint(stderr, "Proceed? [y/N] ")
+	line, _ := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
+	switch strings.ToLower(strings.TrimSpace(line)) {
+	case "y", "yes":
+		return true
+	default:
+		return false
+	}
 }
 
 // staleRepos returns the subset of rs whose resolved Path does not exist on
