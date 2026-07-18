@@ -1,6 +1,6 @@
 # hop — agent skill bundle
 
-`hop` is a repo locator: it turns one config file (`~/.config/hop/hop.yaml`) into a
+`hop` is a repo locator: it turns one config file (default `~/.config/hop/hop.yaml`) into a
 personal directory of your git repos, so you can navigate to, run commands in, and
 batch-update them from anywhere. The grammar is uniformly **`hop <selection> <action>`**,
 selection-first. This bundle is the usage briefing for an agent driving an installed `hop`.
@@ -42,7 +42,7 @@ Grammar: `hop <selection> <action>`. `<selection>` = a repo name (case-insensiti
   (`hop --shim-plan …`) and the shim acts on a fixed 3-keyword reply — it hard-codes no subcommand names.
 - **`wt`**: `hop <name> open` and `hop <name>/<wt>` shell out to `wt` — it must be on `PATH` for any `/`-suffixed
   selection or `open`. Bare selections never invoke `wt`.
-- **`fzf`**: the picker on `hop` (bare) and ambiguous/zero-match name resolution. Invoked lazily — exact matches skip it.
+- **`fzf`**: the picker on `hop` (bare) and ambiguous/zero-match name resolution. Invoked lazily — unique matches skip it.
 - **`git`**: under the `pull`/`push`/`sync` batch verbs (one 10-minute timeout per repo call).
 - **Agent-side composition**: enumerate with `hop ls --json`, then drive other verbs by exact name;
   resolve a single path with `hop <name> where`. Both are scriptable and TTY-free.
