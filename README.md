@@ -1,6 +1,6 @@
 # hop
 
-> Part of [@sahil87's open source toolkit](https://shll.ai) — see all projects there.
+> Part of the [shll toolkit](https://shll.ai) — see all projects there.
 
 [![Latest release](https://img.shields.io/github/v/release/sahil87/hop)](https://github.com/sahil87/hop/releases) [![Downloads](https://img.shields.io/github/downloads/sahil87/hop/total)](https://github.com/sahil87/hop/releases) [![Stars](https://img.shields.io/github/stars/sahil87/hop?style=social)](https://github.com/sahil87/hop/stargazers)
 
@@ -12,7 +12,7 @@ A small Go CLI that turns one config file (`hop.yaml`) into a personal directory
 curl -fsSL https://shll.ai/install | sh -s -- hop
 ```
 
-Installs hop (plus the shll meta-CLI) via Homebrew, handling tap trust automatically. To install the entire sahil87 toolkit instead:
+Installs hop (plus the shll meta-CLI) via Homebrew, handling tap trust automatically. To install the entire shll toolkit instead:
 
 ```sh
 curl -fsSL https://shll.ai/install | sh
@@ -98,7 +98,7 @@ eval "$(hop shell-init bash)"  # in ~/.bashrc
 
 This installs the `hop` shell function, the `h` alias, and tab completion. The shell function asks the binary how to dispatch each invocation (cd, run-in-parent-shell, or pass through to the binary) and acts on the answer — so navigation and running commands/aliases in a repo's directory work, none of which a bare binary can do (changing the parent shell's cwd is a Unix constraint, not a hop limitation). See [Gotchas](#gotchas) for the shim-vs-binary details.
 
-> 💡 Have other sahil87 tools? [`shll shell-install`](https://github.com/sahil87/shll#shll-shell-install--wire-the-rc-file-recommended) handles all of their shell integrations and autocompletions at once.
+> 💡 Have other shll tools? [`shll shell-install`](https://github.com/sahil87/shll#shll-shell-install--wire-the-rc-file-recommended) handles all of their shell integrations and autocompletions at once.
 
 ## First run
 

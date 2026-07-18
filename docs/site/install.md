@@ -55,7 +55,7 @@ The shim never `eval`s the binary's output — it runs the words you already typ
 
 If you ever run hop without the shim installed, navigation prints a hint pointing you back to `eval "$(hop shell-init zsh)"`, with `cd "$(command hop <name> where)"` as the manual workaround.
 
-### One-shot wiring for multiple sahil87 tools
+### One-shot wiring for multiple shll tools
 
 If you use several tools from the toolkit (hop, `wt`, and friends), you don't have to add an `eval` line per tool. [`shll shell-install`](https://github.com/sahil87/shll) wires every installed tool's shell integration and completions into your rc file in a single command.
 
