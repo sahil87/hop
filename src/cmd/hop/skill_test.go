@@ -17,21 +17,6 @@ const skillCanonicalPath = "../../../docs/site/skill.md"
 // blow it.
 const skillMaxLines = 150
 
-// runSkill builds a fresh root (mirroring main()'s wiring), executes the given
-// args through it, and returns captured stdout/stderr plus the RunE error. The
-// visible `skill` command resolves as a normal child of the wired root.
-func runSkill(t *testing.T, args ...string) (stdout, stderr *bytes.Buffer, err error) {
-	t.Helper()
-	root := newRootCmd()
-	stdout = &bytes.Buffer{}
-	stderr = &bytes.Buffer{}
-	root.SetOut(stdout)
-	root.SetErr(stderr)
-	root.SetArgs(args)
-	err = root.Execute()
-	return stdout, stderr, err
-}
-
 // TestSkillEmbedMatchesCanonical is the drift guard: the embedded skill.md bytes
 // MUST equal the canonical docs/site/skill.md. When someone edits the canonical
 // file without re-running scripts/sync-skill.sh, this fails on every
@@ -52,7 +37,7 @@ func TestSkillEmbedMatchesCanonical(t *testing.T) {
 // skill` exits 0 (RunE returns nil), writes the embedded bundle byte-identically
 // to stdout, and leaves stderr empty.
 func TestSkillInvocationContract(t *testing.T) {
-	stdout, stderr, err := runSkill(t, "skill")
+	stdout, stderr, err := runArgs(t, "skill")
 	if err != nil {
 		t.Fatalf("hop skill: unexpected error: %v (stderr: %s)", err, stderr.String())
 	}
@@ -68,7 +53,7 @@ func TestSkillInvocationContract(t *testing.T) {
 // TestSkillRejectsArgs confirms `cobra.NoArgs` — `hop skill <extra>` is a usage
 // error (RunE never runs), so the command takes no positionals or flags.
 func TestSkillRejectsArgs(t *testing.T) {
-	_, _, err := runSkill(t, "skill", "extra")
+	_, _, err := runArgs(t, "skill", "extra")
 	if err == nil {
 		t.Fatal("hop skill extra: want an error (cobra.NoArgs), got nil")
 	}
