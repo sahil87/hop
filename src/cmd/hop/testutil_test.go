@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -57,6 +58,22 @@ func runArgs(t *testing.T, args ...string) (stdout, stderr *bytes.Buffer, err er
 	stderr = &bytes.Buffer{}
 	cmd.SetOut(stdout)
 	cmd.SetErr(stderr)
+	cmd.SetArgs(args)
+	err = cmd.Execute()
+	return stdout, stderr, err
+}
+
+// runArgsStdin is runArgs with an injected stdin (via cmd.SetIn), so tests can
+// feed the interactive `hop rm <name>` consent prompt without a PTY. The stdin
+// string is read by confirmRemoval through cmd.InOrStdin().
+func runArgsStdin(t *testing.T, stdin string, args ...string) (stdout, stderr *bytes.Buffer, err error) {
+	t.Helper()
+	cmd := newRootCmd()
+	stdout = &bytes.Buffer{}
+	stderr = &bytes.Buffer{}
+	cmd.SetOut(stdout)
+	cmd.SetErr(stderr)
+	cmd.SetIn(strings.NewReader(stdin))
 	cmd.SetArgs(args)
 	err = cmd.Execute()
 	return stdout, stderr, err

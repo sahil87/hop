@@ -459,8 +459,11 @@ func TestIntegrationTopLevelAddRm(t *testing.T) {
 	})
 
 	t.Run("top-level rm by name removes directly", func(t *testing.T) {
-		// "newrepo" uniquely substring-matches → resolveByName, no fzf.
-		_, stderr, err := run(t, "rm", "newrepo")
+		// "newrepo" uniquely substring-matches → resolveByName, no fzf. --yes
+		// supplies flag-based consent (change clc4): this subprocess has no
+		// controlling TTY, so without --yes `hop rm <name>` would refuse (exit 3)
+		// rather than run unattended.
+		_, stderr, err := run(t, "rm", "newrepo", "--yes")
 		if err != nil {
 			t.Fatalf("hop rm newrepo: %v\nstderr: %s", err, stderr)
 		}

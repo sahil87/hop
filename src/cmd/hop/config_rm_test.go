@@ -250,8 +250,9 @@ func TestTopLevelRmByNameSkipsPicker(t *testing.T) {
 	})
 
 	// "wt" uniquely substring-matches the wt repo → resolveByName returns it
-	// directly without fzf.
-	_, stderr, err := runArgs(t, "rm", "wt")
+	// directly without fzf. --yes skips the consent gate (change clc4) so this
+	// test isolates the picker-skip behavior it targets.
+	_, stderr, err := runArgs(t, "rm", "wt", "--yes")
 	if err != nil {
 		t.Fatalf("hop rm wt: %v", err)
 	}
@@ -287,7 +288,7 @@ func TestTopLevelRmByNameRemovesRegardlessOfDisk(t *testing.T) {
 		return "", nil
 	})
 
-	_, stderr, err := runArgs(t, "rm", "gone")
+	_, stderr, err := runArgs(t, "rm", "gone", "--yes")
 	if err != nil {
 		t.Fatalf("hop rm gone (folder absent): %v", err)
 	}
@@ -323,8 +324,9 @@ func TestTopLevelRmByNameStripsWorktreeSuffix(t *testing.T) {
 	})
 
 	// "gone/feature-x" → suffix stripped → resolves the parent "gone" repo and
-	// removes it, never touching the worktree/clone-state machinery.
-	_, stderr, err := runArgs(t, "rm", "gone/feature-x")
+	// removes it, never touching the worktree/clone-state machinery. --yes skips
+	// the consent gate (change clc4) so the test isolates suffix-stripping.
+	_, stderr, err := runArgs(t, "rm", "gone/feature-x", "--yes")
 	if err != nil {
 		t.Fatalf("hop rm gone/feature-x (suffix should be stripped): %v", err)
 	}
@@ -559,5 +561,274 @@ func TestRmByNameDryRunForgivingNotFound(t *testing.T) {
 	got, _ := os.ReadFile(path)
 	if string(got) != string(original) {
 		t.Errorf("hop.yaml modified by not-found dry-run; got:\n%s", got)
+	}
+}
+
+// --- consent gate on `hop rm <name>` (change clc4) ------------------------
+
+// rmConsentFixture registers hop + wt in the default group and returns the
+// config path. Shared by the consent-gate tests below.
+func rmConsentFixture(t *testing.T) string {
+	t.Helper()
+	yaml := `repos:
+  default:
+    - git@github.com:sahil87/hop.git
+    - git@github.com:sahil87/wt.git
+`
+	return writeReposFixture(t, yaml)
+}
+
+// TestRmByNameTTYAcceptRemoves asserts that on a TTY, `hop rm <name>` shows the
+// resolved match preview + prompt and, when the user answers `y`, proceeds with
+// the removal (R1). isTTY is stubbed true (TestMain default) and `y\n` is fed
+// through the command's injected stdin.
+func TestRmByNameTTYAcceptRemoves(t *testing.T) {
+	path := rmConsentFixture(t)
+	withIsTTY(t, true)
+
+	stdout, stderr, err := runArgsStdin(t, "y\n", "rm", "wt")
+	if err != nil {
+		t.Fatalf("hop rm wt (accept): %v", err)
+	}
+	if !strings.Contains(stderr.String(), "remove: wt  (git@github.com:sahil87/wt.git)") {
+		t.Errorf("missing match-preview line; stderr=%q", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "Proceed? [y/N]") {
+		t.Errorf("missing prompt; stderr=%q", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "removed: git@github.com:sahil87/wt.git") {
+		t.Errorf("expected removal after accept; stderr=%q", stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Errorf("stdout must stay empty; got %q", stdout.String())
+	}
+	got, _ := os.ReadFile(path)
+	if strings.Contains(string(got), "wt.git") {
+		t.Errorf("removed URL still present; got:\n%s", got)
+	}
+}
+
+// TestRmByNameTTYDeclineAborts asserts that on a TTY, a declined prompt (bare
+// Enter, `n`, or garbage) aborts with `aborted: no changes written`, exit 0, and
+// leaves hop.yaml unchanged (R2, A-013 covers the bare-Enter default-No case).
+func TestRmByNameTTYDeclineAborts(t *testing.T) {
+	for _, input := range []struct {
+		name  string
+		stdin string
+	}{
+		{"bare-enter", "\n"},
+		{"n", "n\n"},
+		{"garbage", "wat\n"},
+		{"eof-no-newline", ""},
+	} {
+		t.Run(input.name, func(t *testing.T) {
+			path := rmConsentFixture(t)
+			original, _ := os.ReadFile(path)
+			withIsTTY(t, true)
+
+			_, stderr, err := runArgsStdin(t, input.stdin, "rm", "wt")
+			if err != nil {
+				t.Fatalf("hop rm wt (decline %q) should be a benign no-op: %v", input.stdin, err)
+			}
+			if !strings.Contains(stderr.String(), abortedNoChanges) {
+				t.Errorf("expected %q; stderr=%q", abortedNoChanges, stderr.String())
+			}
+			if strings.Contains(stderr.String(), "removed:") || strings.Contains(stderr.String(), "wrote:") {
+				t.Errorf("decline must not remove; stderr=%q", stderr.String())
+			}
+			got, _ := os.ReadFile(path)
+			if string(got) != string(original) {
+				t.Errorf("hop.yaml modified on declined prompt; got:\n%s", got)
+			}
+		})
+	}
+}
+
+// TestRmByNameNoTTYRefuses asserts the no-TTY + no-`--yes` + no-`--dry-run`
+// positional path returns errConsentRequired (→ exit 3 via translateExit) with
+// no write, and the message names --yes (R4). The prompt is never reached (stdin
+// is irrelevant / unread).
+func TestRmByNameNoTTYRefuses(t *testing.T) {
+	path := rmConsentFixture(t)
+	original, _ := os.ReadFile(path)
+	withIsTTY(t, false)
+
+	_, stderr, err := runArgsStdin(t, "y\n", "rm", "wt")
+	if !errors.Is(err, errConsentRequired) {
+		t.Fatalf("expected errConsentRequired, got %v", err)
+	}
+	if code := translateExit(err); code != 3 {
+		t.Errorf("translateExit = %d, want 3", code)
+	}
+	if !strings.Contains(stderr.String(), "hop rm: consent required for removal — re-run with --yes") {
+		t.Errorf("expected consent-refusal message naming --yes; stderr=%q", stderr.String())
+	}
+	// No write, and no prompt was shown (refused before confirmRemoval).
+	if strings.Contains(stderr.String(), "Proceed?") {
+		t.Errorf("no-TTY refusal must not prompt; stderr=%q", stderr.String())
+	}
+	got, _ := os.ReadFile(path)
+	if string(got) != string(original) {
+		t.Errorf("hop.yaml modified on no-TTY consent refusal; got:\n%s", got)
+	}
+}
+
+// TestRmByNameYesSkipsPrompt asserts `--yes` skips the prompt and proceeds, both
+// on a TTY and with no TTY (R3). No `Proceed?` line is emitted in either case.
+func TestRmByNameYesSkipsPrompt(t *testing.T) {
+	for _, tty := range []bool{true, false} {
+		t.Run(fmt.Sprintf("tty=%v", tty), func(t *testing.T) {
+			path := rmConsentFixture(t)
+			withIsTTY(t, tty)
+
+			// Feed a decline through stdin to prove --yes does NOT read it.
+			_, stderr, err := runArgsStdin(t, "n\n", "rm", "wt", "--yes")
+			if err != nil {
+				t.Fatalf("hop rm wt --yes (tty=%v): %v", tty, err)
+			}
+			if strings.Contains(stderr.String(), "Proceed?") {
+				t.Errorf("--yes must skip the prompt; stderr=%q", stderr.String())
+			}
+			if !strings.Contains(stderr.String(), "removed: git@github.com:sahil87/wt.git") {
+				t.Errorf("expected removal with --yes; stderr=%q", stderr.String())
+			}
+			got, _ := os.ReadFile(path)
+			if strings.Contains(string(got), "wt.git") {
+				t.Errorf("removed URL still present; got:\n%s", got)
+			}
+		})
+	}
+}
+
+// TestRmByNameShortYesFlag asserts the -y shorthand is wired to the same --yes
+// behavior (R3).
+func TestRmByNameShortYesFlag(t *testing.T) {
+	path := rmConsentFixture(t)
+	withIsTTY(t, false) // -y must work with no TTY (the automation case)
+
+	_, stderr, err := runArgsStdin(t, "", "rm", "wt", "-y")
+	if err != nil {
+		t.Fatalf("hop rm wt -y: %v", err)
+	}
+	if !strings.Contains(stderr.String(), "removed: git@github.com:sahil87/wt.git") {
+		t.Errorf("expected removal with -y; stderr=%q", stderr.String())
+	}
+	got, _ := os.ReadFile(path)
+	if strings.Contains(string(got), "wt.git") {
+		t.Errorf("removed URL still present; got:\n%s", got)
+	}
+}
+
+// TestRmByNameDryRunNoTTYNeedsNoConsent asserts `--dry-run` (no `--yes`, no TTY)
+// is checked before the consent gate: it previews without writing and exits 0 —
+// never refused, never prompted (R5). Regression guard for dry-run precedence.
+func TestRmByNameDryRunNoTTYNeedsNoConsent(t *testing.T) {
+	path := rmConsentFixture(t)
+	original, _ := os.ReadFile(path)
+	withIsTTY(t, false)
+
+	_, stderr, err := runArgsStdin(t, "", "rm", "wt", "--dry-run")
+	if err != nil {
+		t.Fatalf("hop rm wt --dry-run (no TTY) must need no consent: %v", err)
+	}
+	if !strings.Contains(stderr.String(), "would remove: git@github.com:sahil87/wt.git") {
+		t.Errorf("expected dry-run preview; stderr=%q", stderr.String())
+	}
+	if strings.Contains(stderr.String(), "consent required") || strings.Contains(stderr.String(), "Proceed?") {
+		t.Errorf("dry-run must not consult consent; stderr=%q", stderr.String())
+	}
+	got, _ := os.ReadFile(path)
+	if string(got) != string(original) {
+		t.Errorf("hop.yaml modified by dry-run; got:\n%s", got)
+	}
+}
+
+// TestRmByNameYesDryRunComposes asserts `--yes --dry-run` still takes the
+// dry-run (no-write) path — dry-run precedence over the gate (A-012).
+func TestRmByNameYesDryRunComposes(t *testing.T) {
+	path := rmConsentFixture(t)
+	original, _ := os.ReadFile(path)
+	withIsTTY(t, false)
+
+	_, stderr, err := runArgsStdin(t, "", "rm", "wt", "--yes", "--dry-run")
+	if err != nil {
+		t.Fatalf("hop rm wt --yes --dry-run: %v", err)
+	}
+	if !strings.Contains(stderr.String(), "would remove: git@github.com:sahil87/wt.git") {
+		t.Errorf("expected dry-run preview with --yes --dry-run; stderr=%q", stderr.String())
+	}
+	if strings.Contains(stderr.String(), "removed:") {
+		t.Errorf("--yes --dry-run must not write; stderr=%q", stderr.String())
+	}
+	got, _ := os.ReadFile(path)
+	if string(got) != string(original) {
+		t.Errorf("hop.yaml modified by --yes --dry-run; got:\n%s", got)
+	}
+}
+
+// TestRmPickerNoConsentPrompt asserts the picker path (`hop rm`, no positional)
+// emits no post-pick `Proceed?` / `aborted:` prompt — the fzf pick is the
+// consent (R6). Regression guard.
+func TestRmPickerNoConsentPrompt(t *testing.T) {
+	path := rmConsentFixture(t)
+	withIsTTY(t, true)
+	withPickOne(t, pickLineContaining(t, "git@github.com:sahil87/wt.git"))
+
+	// A decline fed through stdin must be ignored — the picker path never reads it.
+	_, stderr, err := runArgsStdin(t, "n\n", "rm")
+	if err != nil {
+		t.Fatalf("hop rm (picker): %v", err)
+	}
+	if strings.Contains(stderr.String(), "Proceed?") || strings.Contains(stderr.String(), abortedNoChanges) {
+		t.Errorf("picker path must not run the consent prompt; stderr=%q", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "removed: git@github.com:sahil87/wt.git") {
+		t.Errorf("expected picked entry removed; stderr=%q", stderr.String())
+	}
+	got, _ := os.ReadFile(path)
+	if strings.Contains(string(got), "wt.git") {
+		t.Errorf("removed URL still present; got:\n%s", got)
+	}
+}
+
+// TestRmPickerYesIgnored asserts `--yes` on the picker shape is accepted and
+// ignored (redundant, not contradictory) — no usage error, removal proceeds
+// with no prompt (R3, intake Assumption 7).
+func TestRmPickerYesIgnored(t *testing.T) {
+	path := rmConsentFixture(t)
+	withIsTTY(t, true)
+	withPickOne(t, pickLineContaining(t, "git@github.com:sahil87/wt.git"))
+
+	_, stderr, err := runArgsStdin(t, "", "rm", "--yes")
+	if err != nil {
+		t.Fatalf("hop rm --yes (picker, --yes accepted-and-ignored): %v", err)
+	}
+	if !strings.Contains(stderr.String(), "removed: git@github.com:sahil87/wt.git") {
+		t.Errorf("expected picked entry removed; stderr=%q", stderr.String())
+	}
+	got, _ := os.ReadFile(path)
+	if strings.Contains(string(got), "wt.git") {
+		t.Errorf("removed URL still present; got:\n%s", got)
+	}
+}
+
+// TestConfigRmAliasHasNoYesFlag asserts the hidden `hop config rm` alias
+// registers no --yes/-y flag — it is picker-only, so it has no consent point
+// (R7, Constitution VI). The canonical `hop rm` DOES register it (contrast).
+func TestConfigRmAliasHasNoYesFlag(t *testing.T) {
+	alias := newConfigRmCmd()
+	if alias.Flags().Lookup("yes") != nil {
+		t.Errorf("hidden `config rm` alias must not register a --yes flag")
+	}
+	if alias.Flags().ShorthandLookup("y") != nil {
+		t.Errorf("hidden `config rm` alias must not register a -y shorthand")
+	}
+	// Sanity: the canonical command DOES register --yes/-y.
+	canonical := newRmCmd()
+	if canonical.Flags().Lookup("yes") == nil {
+		t.Errorf("canonical `hop rm` must register a --yes flag")
+	}
+	if canonical.Flags().ShorthandLookup("y") == nil {
+		t.Errorf("canonical `hop rm` must register a -y shorthand")
 	}
 }
