@@ -93,7 +93,7 @@ The full Go test suite SHALL pass, confirming the upgraded kit scaffolding break
 
 - Check items as you review: `- [x]`
 - All acceptance items must pass before `/fab-continue` (hydrate)
-- This is a verification-only apply — no files are edited, created, or committed during apply.
+- This is a verification-only apply — it introduces no *additional* working-tree changes beyond the already-applied kit upgrade (no source/config edits, no re-run of `fab upgrade-repo`, no commit). The pipeline still generates the change-folder artifacts (this plan, status files) as usual.
 
 ## Assumptions
 
