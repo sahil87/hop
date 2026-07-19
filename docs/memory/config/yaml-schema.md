@@ -161,6 +161,6 @@ Path = filepath.Join(expand(cfg.CodeRoot), name)
 
 Anything is accepted as a URL string. A YAML-valid but semantically odd entry like `- not a url` parses fine (subject to URL uniqueness validation); `Name` becomes `not a url`. Errors surface at `git clone` invocation time, not load time.
 
-## Removed in this change
+## No legacy flat schema
 
-The flat directory→URLs schema (v0.0.1's `~/code/sahil87: [...]`) is gone. There is no migration path — users `cp repos.yaml ~/.config/hop/hop.yaml` and rewrite by hand. See [search-order](/config/search-order.md) for env var and search-path changes.
+The flat directory→URLs schema (v0.0.1's `~/code/sahil87: [...]`) is not supported. There is no migration path — users `cp repos.yaml ~/.config/hop/hop.yaml` and rewrite by hand. See [search-order](/config/search-order.md) for the fixed-path resolution.

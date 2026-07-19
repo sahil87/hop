@@ -1,12 +1,12 @@
 ---
-description: "`hop add <dir>` (single-dir) and `hop add -r <dir>` (recursive DFS walk) — repo classification, convention/slugify group assignment, `-g` forced group, `-p` print dry-run, conflict resolution, render/merge through `internal/yamled`. (`hop config scan` was deleted, no alias.)"
+description: "`hop add <dir>` (single-dir) and `hop add -r <dir>` (recursive DFS walk) — repo classification, convention/slugify group assignment, `-g` forced group, `-p` print dry-run, conflict resolution, render/merge through `internal/yamled`. (No `hop config scan`; no alias.)"
 type: memory
 ---
 # Registering Repos via `hop add`
 
 How `hop add` registers on-disk git repos into `hop.yaml` — at two breadths (single dir, or a recursive `-r` tree walk) and two sinks (write by default, or `-p` dry-run print). This is **one command, two breadths** — there is no separate `scan` subcommand. The CLI lives in `src/cmd/hop/config_add.go` (factories `newAddCmd` / `newConfigAddCmd`, backed by the shared `runAdd`); the shared plan-building helpers (`validateConfigDir`, `buildScanPlan`, slugify, conflict resolution) live in `src/cmd/hop/config_scan.go`; the filesystem walk lives in `src/internal/scan/scan.go`; YAML emission goes through `src/internal/yamled/yamled.go::MergeScan` / `RenderScan`.
 
-History: recursion was unified onto `hop add` and the standalone `hop config scan` command was **deleted with no alias** in change `260608-w2bj-unify-recursive-add`. The DFS/classification mechanics described below are carried over unchanged from the original scan design — spec [`fab/changes/260506-ceh2-config-scan-populate-repos/spec.md`](../../../fab/changes/260506-ceh2-config-scan-populate-repos/spec.md) and intake [`fab/changes/260608-w2bj-unify-recursive-add/intake.md`](../../../fab/changes/260608-w2bj-unify-recursive-add/intake.md).
+The DFS/classification mechanics originate in the scan design (ceh2); recursion is unified onto `hop add` with no standalone scan command (w2bj — see [`hop config scan` is deleted](#hop-config-scan-is-deleted--no-alias)).
 
 ## Overview
 
@@ -37,7 +37,7 @@ hop add -g vendor <dir>          # force group (any breadth)
 hop add -r -g work ~/clients     # tree into a forced group
 ```
 
-**Write is the default at every breadth.** `-p` is the opt-in dry-run. (This inverts the deleted `config scan`'s print-by-default behavior — a first scan run appearing to do nothing was the biggest onboarding papercut.) Onboarding collapses to a single command: **`hop add -r <dir>`**.
+**Write is the default at every breadth.** `-p` is the opt-in dry-run. (Print-by-default was rejected — a first run appearing to do nothing was the biggest onboarding papercut.) Onboarding collapses to a single command: **`hop add -r <dir>`**.
 
 `code_root` is **never** modified by `add` — it is durable and load-bearing. A user can `hop config init` to set `code_root` first, but it is not required: `hop add -r` auto-inits a missing config (see [`hop.yaml` precondition](#hopyaml-precondition)).
 
@@ -60,7 +60,7 @@ Returns `errSilent` / `*errExitCode` on user-visible failures; `nil` on success 
 
 The single positional `<dir>` is normalized in this order before any further processing, via the shared `config_scan.go::validateConfigDir(userArg, cmdName, stderr)`:
 
-1. `filepath.Abs(<dir>)` — joins a relative argument with the process CWD (and runs `Clean`), so the returned canonical path is always **absolute**. Failure → usage error. (Change `260605-c92v-fix-relative-dir-args` replaced the prior `filepath.Clean` step with `filepath.Abs`; `EvalSymlinks` preserves a relative input as relative, which left `Found.Path` relative and broke group derivation / convention matching — so a bare relative name like `hop add fab-kit` from its parent dir now resolves correctly instead of failing with `cannot derive group name from parent dir '.'`.)
+1. `filepath.Abs(<dir>)` — joins a relative argument with the process CWD (and runs `Clean`), so the returned canonical path is always **absolute**. Failure → usage error. (`filepath.Abs`, NOT a bare `filepath.Clean` — c92v: `EvalSymlinks` preserves a relative input as relative, which would leave `Found.Path` relative and break group derivation / convention matching — a bare relative name like `hop add fab-kit` from its parent dir would fail with `cannot derive group name from parent dir '.'`.)
 2. `filepath.EvalSymlinks(<abs>)` — resolves symlinks. Failure (including ENOENT) → usage error.
 3. `os.Stat(<resolved>)` — must indicate a directory; otherwise usage error.
 
@@ -76,16 +76,14 @@ Exit 2. No `git` invocation occurs on a failed validation (Constitution I).
 
 How `add` resolves (or creates) `hop.yaml` before discovery depends on the **sink**, not the breadth — `resolveAddConfig(stderr, cmdName, print)`:
 
-- **Write mode (default, no `-p`)** auto-inits a missing config (change `260605-44hm-auto-init-on-write`). It calls `config.ResolveWriteTarget()` (no stat — only errors on `$HOME` unset) then `config.EnsureSkeleton(path)`, which writes the minimal `repos: {}` skeleton when absent and announces `created: <path>` to stderr (see [init-bootstrap § Auto-init-on-write](/config/init-bootstrap.md#auto-init-on-write-change-260605-44hm-auto-init-on-write)). The merge then proceeds against the now-existing file. So `hop add -r ~/code` on a fresh machine creates the config and registers discovered repos in one step — no `config init` prerequisite.
-- **Print mode (`-p`)** never touches the file, so there is nothing to bootstrap — it calls `config.Resolve()` and **errors on absence**. The message is the refined resolver text (change `260605-44hm-auto-init-on-write`), surfaced under the add prefix:
+- **Write mode (default, no `-p`)** auto-inits a missing config (44hm). It calls `config.ResolveWriteTarget()` (no stat — only errors on `$HOME` unset) then `config.EnsureSkeleton(path)`, which writes the minimal `repos: {}` skeleton when absent and announces `created: <path>` to stderr (see [init-bootstrap § Auto-init-on-write](/config/init-bootstrap.md#auto-init-on-write)). The merge then proceeds against the now-existing file. So `hop add -r ~/code` on a fresh machine creates the config and registers discovered repos in one step — no `config init` prerequisite.
+- **Print mode (`-p`)** never touches the file, so there is nothing to bootstrap — it calls `config.Resolve()` and **errors on absence**. The message is the resolver text (44hm), surfaced under the add prefix:
 
   ```
   hop add: hop: no hop.yaml found at <path>. Run 'hop add <dir>' to register a repo (creates the config), or 'hop config init' for a starter.
   ```
 
   `<path>` is the fixed `~/.config/hop/hop.yaml`. Exit 1. No write, no auto-init.
-
-This is the same read-vs-write split the deleted `config scan` had (print mode errored, `--write` auto-inited) — just relocated to the `-p` flag with the default inverted to write.
 
 ## Discovery (single-dir vs. recursive)
 
@@ -121,7 +119,7 @@ Implemented in `scan.go::classifyDir`. First-match-wins:
 
 ### Submodule handling
 
-`ReasonSubmodule` is reserved in the public Skip enum but **never emitted by the current implementation**. The `internal/scan` walker relies solely on the no-descent invariant from rule 2: once a directory is classified as a normal repo, Walk never enqueues its children, so a nested `.git` inside a parent repo is unreachable through DFS. This was an explicit choice (spec assumption #17 permits "the implementation MAY rely solely on the no-descent invariant if it materially simplifies code"). The constant remains exported for forward compatibility.
+`ReasonSubmodule` is reserved in the public Skip enum but **never emitted by the current implementation**. The `internal/scan` walker relies solely on the no-descent invariant from rule 2: once a directory is classified as a normal repo, Walk never enqueues its children, so a nested `.git` inside a parent repo is unreachable through DFS. This is an explicit design choice (the scan spec permits relying solely on the no-descent invariant when it materially simplifies code — ceh2). The constant remains exported for forward compatibility.
 
 If a user passes a submodule path directly as `<dir>` (recursive root, or single-dir `add`), behavior depends on the submodule's `.git` shape (per rule 1 vs. rule 2 above):
 
@@ -201,10 +199,10 @@ The smallest available suffix is found by linear scan starting at 2 (`nextAvaila
 
 ### Single-dir idempotency reporting
 
-For the **single-dir, non-recursive, non-`-g`** case, `buildAddPlan` preserves the historical explicit "already registered" vs. "could not be registered" distinction (change `260605-c92v-fix-relative-dir-args`):
+For the **single-dir, non-recursive, non-`-g`** case, `buildAddPlan` keeps the explicit "already registered" vs. "could not be registered" distinction (c92v):
 
 - `urlAlreadyRegistered(cfg, found[0].URL)` — an exact URL match across `cfg.Groups[*].URLs`, mirroring `buildScanPlan`'s `existingURLs` dedup — is checked **before** building the plan. A genuine duplicate prints `<cmdName>: <url> already registered in <path>. Nothing to add.` (exit 0, empty plan).
-- If the URL is *not* a duplicate but the built plan is still empty (the sole candidate was skipped for a non-dedup reason, e.g. a slugify failure where `buildScanPlan` already emitted a `skip:` line), it prints the distinct fallback `<cmdName>: '<dir>' could not be registered (see skip above). Nothing to add.` — fixing the prior bug where any skip-to-empty-plan was misreported as "already registered."
+- If the URL is *not* a duplicate but the built plan is still empty (the sole candidate was skipped for a non-dedup reason, e.g. a slugify failure where `buildScanPlan` already emitted a `skip:` line), it prints the distinct fallback `<cmdName>: '<dir>' could not be registered (see skip above). Nothing to add.` — so a skip-to-empty-plan is never misreported as "already registered."
 
 Recursive and forced-group breadths skip this per-repo distinction (they use the scan-style aggregate summary instead).
 
@@ -232,11 +230,11 @@ Print mode prepends a two-line header comment before the rendered YAML (`config_
 # Run without --print to merge into <resolved-hop.yaml-path>.
 ```
 
-`<user-arg>` is the user-supplied directory verbatim (not canonicalized); `<YYYY-MM-DD>` is `time.Now().UTC().Format("2006-01-02")` (UTC for reproducibility across collaborators); the literal `(UTC)` suffix removes timezone ambiguity. The header is part of the *stdout* render only — write mode does not modify the file's existing head comments. (Reworded from the deleted scan's `'hop config scan <arg>'` / `Run with --write to merge into` phrasing.) The header literal always names the recursive form (`'hop add -r -p <user-arg>'`) even for a single-dir `-p` dry-run — the `-r` in the header is the canonical onboarding example, not a reflection of the actual flags passed.
+`<user-arg>` is the user-supplied directory verbatim (not canonicalized); `<YYYY-MM-DD>` is `time.Now().UTC().Format("2006-01-02")` (UTC for reproducibility across collaborators); the literal `(UTC)` suffix removes timezone ambiguity. The header is part of the *stdout* render only — write mode does not modify the file's existing head comments. The header literal always names the recursive form (`'hop add -r -p <user-arg>'`) even for a single-dir `-p` dry-run — the `-r` in the header is the canonical onboarding example, not a reflection of the actual flags passed.
 
 ### The `Flat` field (byte-identical print vs. write)
 
-`yamled.InventedGroup` gained a `Flat bool` field (change `260608-w2bj-unify-recursive-add`):
+`yamled.InventedGroup` carries a `Flat bool` field (w2bj):
 
 ```go
 type InventedGroup struct {
@@ -250,7 +248,7 @@ type InventedGroup struct {
 - **`Flat: false`** (default, the convention/invented path via `buildScanPlan`) → `mergeScanIntoTree` renders a **map-shaped** group `{ dir: <Dir>, urls: [...] }`. This preserves the existing behavior for invented groups, which carry a derived `dir:` override.
 - **`Flat: true`** (the `-g` forced-group path via `buildForcedGroupPlan`) → renders a **flat-list** group `<Name>: ['url', ...]` with no `dir` key, using `yaml.FlowStyle` on the synthesized sequence node.
 
-Why `Flat` exists: a forced group has no `dir` override. Without the flag, print mode rendered an invalid map-shape `dir: ""` node (a rework finding — `M1`: print-mode `-g` rendered invalid map-shape `dir:""` instead of a flat list, which fails to reload). With `Flat`, print mode (`RenderScan`, where the group does not yet exist on disk) and write mode (`MergeScan` after `EnsureGroup` first seeds an empty `<name>: []`, which reparses as a flow sequence) both produce the identical flat `<name>: ['url', ...]` shape — keeping the `-p` dry-run byte-identical to the write (requirement R2).
+Why `Flat` exists: a forced group has no `dir` override. Without the flag, print mode would render an invalid map-shape `dir: ""` node that fails to reload. With `Flat`, print mode (`RenderScan`, where the group does not yet exist on disk) and write mode (`MergeScan` after `EnsureGroup` first seeds an empty `<name>: []`, which reparses as a flow sequence) both produce the identical flat `<name>: ['url', ...]` shape — keeping the `-p` dry-run byte-identical to the write.
 
 ### Group ordering
 
@@ -320,11 +318,11 @@ type InventedGroup struct {
 
 ## `hop config scan` is deleted — NO alias
 
-The standalone `hop config scan` cobra subcommand was **removed entirely** in change `260608-w2bj-unify-recursive-add` — `newConfigScanCmd()`, its `runConfigScan` entry point, the `scanLong` help string, and the `scanHeaderComment` / `emitScanSummary` helpers (scan-exclusive) are all gone. The walk capability now lives as `hop add -r`.
+There is no standalone `hop config scan` cobra subcommand (w2bj) — no `newConfigScanCmd()`, no `runConfigScan` entry point, no `scanLong` help string, no scan-exclusive `scanHeaderComment` / `emitScanSummary` helpers. The walk capability lives as `hop add -r`.
 
 **No alias** — `hop config scan <anything>` returns cobra's `unknown command "scan" for "hop config"` and a non-zero exit. This is a deliberate hard break (user decision, made after being shown the back-compat tradeoff twice — contrast with `add`/`rm`, which DO survive as hidden `config` aliases). It is implemented via a `RunE` on the `config` parent command (`config.go::newConfigCmd`, `Args: cobra.ArbitraryArgs`): a bare `hop config` (no args) prints help; an unknown subcommand reaches the parent's RunE with non-empty args and returns `fmt.Errorf("unknown command %q for %q", args[0], cmd.CommandPath())`. Valid subcommands (`init`/`where`/`print` and the hidden `add`/`rm` aliases) dispatch to their own RunE before this fires. See [cli/subcommands § Migration: hidden config aliases](/cli/subcommands.md#migration-hidden-config-aliases).
 
-The **shared helpers** in `config_scan.go` that `add` depends on are retained: `validateConfigDir`, `buildScanPlan`, `slugifyGroupName`, `matchesConvention`, `resolveInventedName`, `homeSubstitute`, `buildSkipParts`, `pluralize`, and the `scanPlanSummary` struct (which gained a `forcedGroup` field for `-g`). The new `addPrintHeader` / `emitAddSummary` (the write-default trailer spellings) live in `config_add.go`, replacing scan's deleted `scanHeaderComment` / `emitScanSummary`. `internal/scan` is **UNTOUCHED**.
+The **shared helpers** in `config_scan.go` that `add` depends on: `validateConfigDir`, `buildScanPlan`, `slugifyGroupName`, `matchesConvention`, `resolveInventedName`, `homeSubstitute`, `buildSkipParts`, `pluralize`, and the `scanPlanSummary` struct (which carries a `forcedGroup` field for `-g`). `addPrintHeader` / `emitAddSummary` (the write-default trailer spellings) live in `config_add.go`. `internal/scan` carries no CLI dispatch concerns.
 
 Migration:
 

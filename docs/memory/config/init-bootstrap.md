@@ -23,7 +23,7 @@ How `hop config init` and `hop config where` behave, plus **auto-init-on-write**
    Edit the file to add your repos, or run `hop add -r <dir>` to populate from existing on-disk repos.
    Tip: to sync this config across machines, keep it in your dotfiles and symlink ~/.config/hop/hop.yaml to it.
    ```
-   The first line surfaces `hop add -r` for onboarding discoverability — without it, the recursive bootstrap is invisible to new users. (The tip was repointed from the deleted `hop config scan <dir>` to `hop add -r <dir>` in change `260608-w2bj-unify-recursive-add`.) The `Tip:` line gives symlink-based sync guidance: since the config now lives at a single fixed path (no `$HOP_CONFIG` override), dotfile sync is achieved by symlinking that path to a tracked file (change `260605-xgmu-fix-config-location`).
+   The first line surfaces `hop add -r` for onboarding discoverability — without it, the recursive bootstrap is invisible to new users (w2bj). The `Tip:` line gives symlink-based sync guidance: since the config lives at a single fixed path (no `$HOP_CONFIG` override — xgmu), dotfile sync is achieved by symlinking that path to a tracked file.
 5. Exit 0.
 
 The `0644` mode is intentional: the file contains repo paths and public git URLs — no credentials. Treating it as sensitive (0600) would be theater.
@@ -58,11 +58,11 @@ repos:
 
 `config.StarterContent() []byte` exposes the embedded bytes for tests that compare exact contents.
 
-The starter parses cleanly under the new schema validator (verified by `TestStarterParses` in `config_test.go`).
+The starter parses cleanly under the schema validator (verified by `TestStarterParses` in `config_test.go`).
 
-## Auto-init-on-write (change `260605-44hm-auto-init-on-write`)
+## Auto-init-on-write
 
-The **write-commands** auto-create a minimal `hop.yaml` when it is absent instead of erroring — `init` is no longer a mandatory precondition for them. The commands that auto-init (the recursive `config scan --write` row folded into `hop add` when scan was deleted — change `260608-w2bj-unify-recursive-add`; the auto-init set's substance is unchanged):
+The **write-commands** auto-create a minimal `hop.yaml` when it is absent — `init` is not a precondition for them (44hm). The commands that auto-init:
 
 | Command | Auto-inits when | Source |
 |---|---|---|
@@ -90,13 +90,13 @@ A fresh `repos: {}` skeleton has **no groups** at all, so `clone`'s target group
 
 ### Read-vs-write split
 
-**Read-commands do NOT auto-init.** `hop`, `hop ls`, `hop <name> where`, and `hop config print` (and `hop add -p` *print*-mode dry-runs, any breadth) keep calling `config.Resolve()` and erroring on absence — they have nothing to write, so silently conjuring an empty config just to then report "no repos" is worse UX than a clear error. The not-found message (refined in this change) names both bootstrap paths:
+**Read-commands do NOT auto-init.** `hop`, `hop ls`, `hop <name> where`, and `hop config print` (and `hop add -p` *print*-mode dry-runs, any breadth) keep calling `config.Resolve()` and erroring on absence — they have nothing to write, so silently conjuring an empty config just to then report "no repos" is worse UX than a clear error. The not-found message names both bootstrap paths (44hm):
 
 ```
 hop: no hop.yaml found at <path>. Run 'hop add <dir>' to register a repo (creates the config), or 'hop config init' for a starter.
 ```
 
-`hop rm` / `hop config rm` are **also not** in the auto-init set — `rm` has nothing to register on a fresh machine, so it retains its own historical gate message (`Run 'hop config init' first, then re-run rm.`, `config_rm.go`). See [search-order § Resolve() semantics](/config/search-order.md#resolve-semantics).
+`hop rm` / `hop config rm` are **also not** in the auto-init set — `rm` has nothing to register on a fresh machine, so it has its own gate message (`Run 'hop config init' first, then re-run rm.`, `config_rm.go`). See [search-order § Resolve() semantics](/config/search-order.md#resolve-semantics).
 
 ### `init` vs. auto-init: which writes what
 
@@ -109,15 +109,15 @@ hop: no hop.yaml found at <path>. Run 'hop add <dir>' to register a repo (create
 
 ### Design Decisions
 
-1. **Auto-init writes a minimal skeleton, NOT the annotated starter** (change `260605-44hm-auto-init-on-write`). *Why*: the starter seeds `git@github.com:sahil87/hop.git` to give a bare-`init` user *something* to `hop` at. But a user running `hop add <dir>` / `scan --write` / `clone <url>` already carries their own intent — injecting the unrelated `hop.git` self-bootstrap repo they didn't ask for would be surprising. So auto-init writes `repos: {}` and the command applies its operation on top; the result contains exactly what the user asked for. *Rejected*: (a) seeding an empty `default:` group into the skeleton — contradicts truly-minimal and doesn't generalize to `clone --group <other>` (clone's `EnsureGroup` handles any group uniformly); (c) reusing the full starter — injects the unwanted seed.
-2. **Only write-commands auto-init; readers keep erroring** (change `260605-44hm-auto-init-on-write`). Writers have something to write, so create-on-absence is natural and intent-preserving. Readers have nothing to write — a clear not-found error (now pointing at `hop add`) beats a conjured empty config that immediately reports "no repos".
-3. **Dependency on the fixed-path property** (change `260605-xgmu-fix-config-location`). Auto-init is only *safe* because the config now lives at exactly one fixed path with no env overrides — so "no file at the one known path" has exactly one meaning: it doesn't exist yet. Before the fixed-path change, a failed resolve was ambiguous (forgot to init? typo'd `$HOP_CONFIG`?), and auto-creating would have silently masked a misconfiguration. The unambiguous-absence precondition is what made this change implementable. See [search-order § Design Decisions](/config/search-order.md#design-decisions).
+1. **Auto-init writes a minimal skeleton, NOT the annotated starter.** *Introduced by*: 44hm. *Why*: the starter seeds `git@github.com:sahil87/hop.git` to give a bare-`init` user *something* to `hop` at. But a user running `hop add <dir>` / `scan --write` / `clone <url>` already carries their own intent — injecting the unrelated `hop.git` self-bootstrap repo they didn't ask for would be surprising. So auto-init writes `repos: {}` and the command applies its operation on top; the result contains exactly what the user asked for. *Rejected*: (a) seeding an empty `default:` group into the skeleton — contradicts truly-minimal and doesn't generalize to `clone --group <other>` (clone's `EnsureGroup` handles any group uniformly); (c) reusing the full starter — injects the unwanted seed.
+2. **Only write-commands auto-init; readers keep erroring.** *Introduced by*: 44hm. Writers have something to write, so create-on-absence is natural and intent-preserving. Readers have nothing to write — a clear not-found error (now pointing at `hop add`) beats a conjured empty config that immediately reports "no repos".
+3. **Dependency on the fixed-path property.** *Introduced by*: xgmu. Auto-init is only *safe* because the config lives at exactly one fixed path with no env overrides — so "no file at the one known path" has exactly one meaning: it doesn't exist yet. Under env-driven resolution a failed resolve is ambiguous (forgot to init? typo'd `$HOP_CONFIG`?), and auto-creating would silently mask a misconfiguration. The unambiguous-absence precondition is what makes auto-init sound. See [search-order § Design Decisions](/config/search-order.md#design-decisions).
 
 ## `hop config where`
 
 Prints `config.ResolveWriteTarget()` to stdout. Exit 0 unless `$HOME` is unset (the only case `ResolveWriteTarget()` can error). Never errors on missing file — it's a debug aid, not a load.
 
-Renamed from v0.0.1's `hop config path` for voice-fit consistency with the locator's `hop where`. Both `init` and `where` are exempt from the standard "load `hop.yaml` first" flow; they run cleanly even when no config exists yet.
+Named `where` for voice-fit consistency with the locator's `hop where`. Both `init` and `where` are exempt from the standard "load `hop.yaml` first" flow; they run cleanly even when no config exists yet.
 
 ## Cross-references
 
