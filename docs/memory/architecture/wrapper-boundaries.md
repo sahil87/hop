@@ -48,10 +48,10 @@ Why a dedicated package: the invocation is non-trivial (multiple flags, stdin pi
 
 ## `internal/update` — Homebrew self-update
 
-`Run(currentVersion string, out, errOut io.Writer) error`:
+`Run(currentVersion string, skipBrewUpdate bool, out, errOut io.Writer) error`:
 
 - Detects whether the binary was installed via Homebrew by walking `os.Executable()` through `filepath.EvalSymlinks` and checking for `/Cellar/` in the resolved path. Non-brew installs print a manual-update hint to `out` and return nil (exit 0).
-- Refreshes the brew index (`brew update --quiet`, `brewUpdateTimeout` = 10-minute generous bound, via `proc.RunGraceful`).
+- Refreshes the brew index (`brew update --quiet`, `brewUpdateTimeout` = 10-minute generous bound, via `proc.RunGraceful`). Skipped when `skipBrewUpdate` is true (threaded from the `--skip-brew-update` flag) — the only step the flag affects; the version check and upgrade always run.
 - Queries the latest tap formula version (`brew info --json=v2 sahil87/tap/hop`, `brewInfoTimeout` = 30s, also via `proc.RunGraceful`; parses `formulae[0].versions.stable`).
 - Compares against `currentVersion` after stripping any leading `v` (binary reports `v0.0.3`, brew reports `0.0.3`).
 - On mismatch, runs `brew upgrade sahil87/tap/hop` with **no deadline** (`context.Background()`) via `proc.RunForeground` so brew's progress streams through and the user can Ctrl-C.

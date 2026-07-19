@@ -80,13 +80,14 @@ func TestRunGracefulNotFound(t *testing.T) {
 // run if the signal was catchable, so observing exit code 42 proves SIGTERM.
 // The sleep runs in the background (`sleep ... & wait`) because sh runs traps
 // only after a foreground child exits, while the `wait` builtin is
-// interruptible by trapped signals; its stdio is redirected so the orphaned
-// sleep does not hold RunGraceful's stdout pipe open after sh exits.
+// interruptible by trapped signals; the trap kills the background sleep
+// before exiting so no orphan outlives the test, and its stdio is redirected
+// so the sleep cannot hold RunGraceful's stdout pipe open in the interim.
 func TestRunGracefulSendsSIGTERMOnCancel(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	start := time.Now()
-	_, err := RunGraceful(ctx, "sh", "-c", `trap 'exit 42' TERM; sleep 5 >/dev/null 2>&1 & wait $!`)
+	_, err := RunGraceful(ctx, "sh", "-c", `trap 'kill $! 2>/dev/null; exit 42' TERM; sleep 5 >/dev/null 2>&1 & wait $!`)
 	if err == nil {
 		t.Fatal("expected error after context cancellation, got nil")
 	}
