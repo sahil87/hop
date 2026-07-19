@@ -279,9 +279,14 @@ func TestShellInitBashEmitsFunctionAndCompletion(t *testing.T) {
 }
 
 func TestShellInitMissingShell(t *testing.T) {
-	_, _, err := runArgs(t, "shell-init")
+	stdout, _, err := runArgs(t, "shell-init")
 	if err == nil {
 		t.Fatalf("expected error when no shell arg")
+	}
+	// shll shell-init standard: on a usage error, stdout MUST stay empty —
+	// nothing eval-able may be emitted alongside the exit-2 diagnostic.
+	if got := stdout.String(); got != "" {
+		t.Fatalf("expected empty stdout on usage error, got: %q", got)
 	}
 	var withCode *errExitCode
 	if !errors.As(err, &withCode) {
@@ -299,9 +304,13 @@ func TestShellInitMissingShell(t *testing.T) {
 }
 
 func TestShellInitUnsupportedShell(t *testing.T) {
-	_, _, err := runArgs(t, "shell-init", "fish")
+	stdout, _, err := runArgs(t, "shell-init", "fish")
 	if err == nil {
 		t.Fatalf("expected error for unsupported shell")
+	}
+	// shll shell-init standard: on a usage error, stdout MUST stay empty.
+	if got := stdout.String(); got != "" {
+		t.Fatalf("expected empty stdout on usage error, got: %q", got)
 	}
 	var withCode *errExitCode
 	if !errors.As(err, &withCode) {

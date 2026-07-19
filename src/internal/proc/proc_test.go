@@ -55,6 +55,72 @@ func TestRunContextCancel(t *testing.T) {
 	}
 }
 
+func TestRunGracefulEcho(t *testing.T) {
+	ctx := context.Background()
+	out, err := RunGraceful(ctx, "echo", "graceful")
+	if err != nil {
+		t.Fatalf("RunGraceful echo: %v", err)
+	}
+	if got := strings.TrimSpace(string(out)); got != "graceful" {
+		t.Fatalf("expected 'graceful', got %q", got)
+	}
+}
+
+func TestRunGracefulNotFound(t *testing.T) {
+	ctx := context.Background()
+	_, err := RunGraceful(ctx, "this-binary-does-not-exist-xyz123")
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
+// TestRunGracefulSendsSIGTERMOnCancel pins the graceful half of the contract:
+// context cancellation delivers SIGTERM, not the exec.CommandContext default
+// SIGKILL. The subprocess traps TERM and exits 42 — a trap handler can only
+// run if the signal was catchable, so observing exit code 42 proves SIGTERM.
+// The sleep runs in the background (`sleep ... & wait`) because sh runs traps
+// only after a foreground child exits, while the `wait` builtin is
+// interruptible by trapped signals; its stdio is redirected so the orphaned
+// sleep does not hold RunGraceful's stdout pipe open after sh exits.
+func TestRunGracefulSendsSIGTERMOnCancel(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_, err := RunGraceful(ctx, "sh", "-c", `trap 'exit 42' TERM; sleep 5 >/dev/null 2>&1 & wait $!`)
+	if err == nil {
+		t.Fatal("expected error after context cancellation, got nil")
+	}
+	if code, ok := ExitCode(err); !ok || code != 42 {
+		t.Fatalf("expected TERM-trap exit 42 (proves SIGTERM, not SIGKILL), got code=%d ok=%v err=%v", code, ok, err)
+	}
+	if elapsed := time.Since(start); elapsed > 3*time.Second {
+		t.Fatalf("graceful exit took %v; want well under the 5s sleep", elapsed)
+	}
+}
+
+// TestRunGracefulEscalatesAfterGrace pins the escalation half: a subprocess
+// that ignores SIGTERM is forcibly ended only after the WaitDelay grace
+// period, not left hanging. SIG_IGN persists across exec, so trapping TERM to
+// the empty action and exec-ing sleep yields a single TERM-immune process
+// with no orphan holding the stdout pipe. The grace seam is shortened so the
+// test runs in milliseconds instead of the production 20s.
+func TestRunGracefulEscalatesAfterGrace(t *testing.T) {
+	prev := gracefulWaitDelay
+	gracefulWaitDelay = 200 * time.Millisecond
+	t.Cleanup(func() { gracefulWaitDelay = prev })
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_, err := RunGraceful(ctx, "sh", "-c", `trap '' TERM; exec sleep 5`)
+	if err == nil {
+		t.Fatal("expected error from forced kill, got nil")
+	}
+	if elapsed := time.Since(start); elapsed > 3*time.Second {
+		t.Fatalf("expected forced kill shortly after the grace period, took %v", elapsed)
+	}
+}
+
 func TestRunForegroundFalse(t *testing.T) {
 	ctx := context.Background()
 	code, err := RunForeground(ctx, "/", "false")

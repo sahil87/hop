@@ -1,5 +1,5 @@
 ---
-description: "`internal/proc` security choke point (Run/RunCapture/RunInteractive/RunForeground), `internal/fzf` wrapper, `internal/yamled` comment-preserving YAML edits, `internal/scan` git invocation routing"
+description: "`internal/proc` security choke point (Run/RunGraceful/RunCapture/RunInteractive/RunForeground; RunGraceful = SIGTERM+grace cancel), `internal/fzf` wrapper, `internal/update` brew-handling timeout policy, `internal/yamled` comment-preserving YAML edits, `internal/scan` git invocation routing"
 type: memory
 ---
 # Wrapper Boundaries
@@ -24,14 +24,15 @@ Test files (`*_test.go`) MAY use `os/exec` directly — to spawn the built binar
 
 | Symbol | Signature |
 |---|---|
-| `Run(ctx, name, args...) ([]byte, error)` | Non-interactive. Captures stdout to bytes; stderr passes through to parent. |
+| `Run(ctx, name, args...) ([]byte, error)` | Non-interactive. Captures stdout to bytes; stderr passes through to parent. On context cancellation the subprocess is SIGKILL'd (`exec.CommandContext` default). |
+| `RunGraceful(ctx, name, args...) ([]byte, error)` | `Run` with **graceful** context cancellation: sets `cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }` and `cmd.WaitDelay = gracefulWaitDelay` so a cancelled context delivers **SIGTERM + a grace period** before Go escalates to a kill — never the default SIGKILL-first. Captures stdout; stderr passes through. For subprocesses that must not be hard-killed mid-transaction — `internal/update`'s captured `brew update` (mutates tap git state) and `brew info` both route through it. Unix-only signal semantics (Windows unsupported, Constitution § Cross-Platform Behavior). |
 | `RunCapture(ctx, dir, name, args...) ([]byte, error)` | `Run` with an explicit `cmd.Dir`. Captures stdout, stderr passes through. Used by `internal/scan` for `git remote` / `git remote get-url` invocations scoped to a discovered repo's working tree (cmd.Dir is preferred over `git -C` so the subprocess sees the canonical cwd directly). |
 | `RunInteractive(ctx, stdin io.Reader, name, args...) (string, error)` | Pipes stdin, captures stdout to string; stderr passes through. Used for fzf. |
-| `RunForeground(ctx, dir, name, args...) (int, error)` | Runs a child with `cmd.Dir = dir` and stdin/stdout/stderr **inherited** from the parent. Returns the child's exit code on success (error nil); returns `(-1, ErrNotFound)` if the binary is missing; returns `(-1, err)` for other I/O / exec failures. The subprocess always inherits the parent's environment. When `dir` is `""`, the subprocess inherits the parent's working directory. Used by `hop <name> open` (with `dir = ""` — the verb forwards the path to wt as a positional arg rather than chdir'ing) and `internal/update`'s `brew upgrade`. Tool-form (`hop <name> <tool>`) runs in the parent shell via the shim's `RUN_IN_PARENT` plan, not through the binary — it has no `RunForeground` call site (gyo0). |
+| `RunForeground(ctx, dir, name, args...) (int, error)` | Runs a child with `cmd.Dir = dir` and stdin/stdout/stderr **inherited** from the parent. Returns the child's exit code on success (error nil); returns `(-1, ErrNotFound)` if the binary is missing; returns `(-1, err)` for other I/O / exec failures. The subprocess always inherits the parent's environment. When `dir` is `""`, the subprocess inherits the parent's working directory. Used by `hop <name> open` (with `dir = ""` — the verb forwards the path to wt as a positional arg rather than chdir'ing) and `internal/update`'s `brew upgrade` (called with `context.Background()` — no deadline, so brew is never SIGKILL'd mid-transaction). Tool-form (`hop <name> <tool>`) runs in the parent shell via the shim's `RUN_IN_PARENT` plan, not through the binary — it has no `RunForeground` call site (gyo0). |
 | `var ErrNotFound` | Sentinel returned when the binary is not on PATH. Callers use `errors.Is(err, proc.ErrNotFound)` to produce install-hint messages. |
 | `ExitCode(err) (int, bool)` | Helper to extract the child's exit code from an `*exec.ExitError` without callers needing to import `os/exec`. |
 
-All three runner functions use `exec.CommandContext(ctx, name, args...)` — never `exec.Command`, never shell strings. Callers supply the `context.Context` (with timeout for non-interactive ops; `context.Background()` for fzf and `wt open` since the user is at the keyboard / interacting with a menu).
+Every runner uses `exec.CommandContext(ctx, name, args...)` — never `exec.Command`, never shell strings. Callers supply the `context.Context` (with timeout for bounded non-interactive ops; `context.Background()` for fzf, `wt open`, and the foreground `brew upgrade` — cases where the user is at the keyboard / interacting with a menu / watching brew's own progress and can Ctrl-C). The cancel behavior differs by runner: `Run`/`RunCapture`/`RunInteractive`/`RunForeground` all take the `exec.CommandContext` default (SIGKILL on cancel); `RunGraceful` overrides it with SIGTERM + `WaitDelay` grace.
 
 ## `internal/fzf` — fzf wrapper
 
@@ -50,11 +51,13 @@ Why a dedicated package: the invocation is non-trivial (multiple flags, stdin pi
 `Run(currentVersion string, out, errOut io.Writer) error`:
 
 - Detects whether the binary was installed via Homebrew by walking `os.Executable()` through `filepath.EvalSymlinks` and checking for `/Cellar/` in the resolved path. Non-brew installs print a manual-update hint to `out` and return nil (exit 0).
-- Refreshes the brew index (`brew update --quiet`, 30s timeout via `proc.Run`).
-- Queries the latest tap formula version (`brew info --json=v2 sahil87/tap/hop`, parses `formulae[0].versions.stable`).
+- Refreshes the brew index (`brew update --quiet`, `brewUpdateTimeout` = 10-minute generous bound, via `proc.RunGraceful`).
+- Queries the latest tap formula version (`brew info --json=v2 sahil87/tap/hop`, `brewInfoTimeout` = 30s, also via `proc.RunGraceful`; parses `formulae[0].versions.stable`).
 - Compares against `currentVersion` after stripping any leading `v` (binary reports `v0.0.3`, brew reports `0.0.3`).
-- On mismatch, runs `brew upgrade sahil87/tap/hop` with a 120s timeout via `proc.RunForeground` so brew's progress streams through.
+- On mismatch, runs `brew upgrade sahil87/tap/hop` with **no deadline** (`context.Background()`) via `proc.RunForeground` so brew's progress streams through and the user can Ctrl-C.
 - All `brew` invocations route through `internal/proc` (Constitution Principle I).
+
+**Brew-handling timeout policy** (shll update standard's brew-handling clause): brew must never be SIGKILL'd mid-transaction — a kill landing between `brew unlink` and `brew link` corrupts the keg. The mutating calls route through `proc.RunGraceful` (SIGTERM + grace), and the foreground `brew upgrade` carries no bound at all (inherited stdio, user-initiated Ctrl-C is the only interruption). `brew update` gets a generous 10-minute graceful bound (no visible progress, so an unbounded hang would look frozen — but it mutates tap git state, so it must cancel gracefully); the read-only `brew info` keeps a short 30s bound and rides the same graceful path for consistency. There is no `brewUpgradeTimeout` constant — the upgrade is unbounded by design.
 
 Stream routing — `out` and `errOut` receive **only the wrapper messages this package emits** ("Current version:", "Already up to date.", error hints). Subprocess stdout/stderr from `brew update`, `brew info`, and `brew upgrade` is intentionally NOT routed through these writers — `internal/proc` owns subprocess streams (`proc.Run` pipes child stderr to the parent's `os.Stderr`; `proc.RunForeground` inherits all three streams). The split is deliberate: subprocess streams are tty-aware (brew prints colored progress); wrapper messages are small and may be redirected for tests or embedding. Production callers pass `os.Stdout` / `os.Stderr` to keep both consistent.
 
@@ -186,3 +189,25 @@ The `pull`/`push`/`sync` batch verbs (action tokens; gyo0) compose a third primi
 3. **`--shim-plan` is not an injection surface** (gyo0) — the classifier never execs the user's action; it emits only the fixed 3-keyword vocabulary plus a resolved path used as a quoted `cd` operand. The shim runs the user's **already-parsed** `"$@"` (`RUN_IN_PARENT`) and **never `eval`s** binary stdout, so binary output is never re-parsed as code.
 4. **No `sh -c`, no `bash -c`, no command-string interpolation anywhere in production code.**
 5. **Atomic file writes** — `internal/yamled` uses temp file + rename in the same directory, preserving the original on rename failure.
+
+## Design Decisions
+
+### Graceful cancel is a new `proc.RunGraceful` function
+
+**Decision**: Expose graceful (SIGTERM + grace) cancellation as a new `RunGraceful(ctx, name, args...)` runner alongside `Run`/`RunCapture`/`RunCaptureBoth`/`RunForeground`/`RunInteractive`, rather than as an option or flag on `Run`.
+
+**Why**: `internal/proc`'s surface is one function per execution mode with a fixed positional signature. A sixth runner reads consistently against that shape; an options struct or variadic flag on `Run` would be the package's first and only such parameter, diverging from the established form for a single caller.
+
+**Rejected**: `proc.Run(ctx, name, args..., WithGracefulCancel())` — functional options on a variadic-args signature are awkward in Go and inconsistent with the package's existing per-mode runners.
+
+*Introduced by*: 260719-g94r-shll-update-version-shell-init-conformance
+
+### Grace period is an unexported package var, not a const or parameter
+
+**Decision**: The escalation grace period is `var gracefulWaitDelay = 20 * time.Second` — an unexported package-level var in `proc.go`, set on `cmd.WaitDelay`.
+
+**Why**: A swappable var is the codebase's established test-seam pattern (`internal/fzf.runInteractive`, `cmd/hop.listWorktrees`, `update.brewRun`). The escalation-after-grace test shortens it to milliseconds so it runs fast; a const could not be swapped, and a parameter would push a policy knob to every call site when both production callers want the same value.
+
+**Rejected**: A `grace time.Duration` parameter on `RunGraceful` — surfaces a knob no caller needs to vary.
+
+*Introduced by*: 260719-g94r-shll-update-version-shell-init-conformance
