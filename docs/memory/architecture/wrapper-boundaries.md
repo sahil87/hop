@@ -100,7 +100,7 @@ Per Constitution Principle IV ("Wrap, Don't Reinvent") — wrap external tools, 
 
 ## `wt` integration (`cmd/hop/open.go` + shim)
 
-`hop <name> open` delegates to `wt open <path>` for app detection, menu selection, and launching. wt is a hard runtime dependency declared as a Homebrew formula `depends_on "sahil87/tap/wt"` in `.github/formula-template.rb` (which the release workflow rewrites into `Formula/hop.rb` at tag time).
+`hop <name> open` delegates to `wt open <path>` for app detection, menu selection, and launching. wt is a **runtime-probed optional tool** — there is no Homebrew formula `depends_on`, so `brew install sahil87/tap/hop` does not pull it; when wt is absent, the delegating surfaces fail fast with the `wtMissingHint` line, which carries the install command (`brew install sahil87/tap/wt`) — see [`build/release-pipeline`](/build/release-pipeline.md) and [`cli/subcommands`](/cli/subcommands.md).
 
 The binary is a transparent passthrough: it resolves the repo and `exec`s `wt open <path>` via `proc.RunForeground(ctx, "", "wt", "open", repo.Path)` with stdio fully inherited. **All env-var orchestration lives in the shell shim**, not the binary. This keeps the binary trivial (~20 lines) and respects the rule that interactive subprocesses can't multiplex stdout with a return-value channel.
 
