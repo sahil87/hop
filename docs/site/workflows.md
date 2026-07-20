@@ -148,7 +148,7 @@ command hop --all pull             # batch ops work fine without the shim
 - **Substring match is on the repo name only.** Not URL, not path, not group. `hop web` matches `webapp` but not `git@github.com:org/webapp.git`. When two repos in different groups share a name, the picker shows `name [group]` to disambiguate.
 - **No `--force` on the `push` / `sync` batch verbs.** Intentional — for nuanced single-repo cases reach for `hop <name> git push --force` (you get the full git output). The batch verbs stay safe by default.
 - **`hop <name> cursor` / `code` need a trailing `.`** — e.g. `hop dotfiles cursor .`. Both editors take `[paths…]`; invoked with none, they restore the previously open folder instead of opening the cwd. The `.` says "open *this* directory." Tools that operate on cwd by default (`git status`, `terraform plan`, `ls`, `npm test`) don't need it.
-- **The `<name>/<wt>` suffix needs `wt` on `PATH`.** hop shells out to `wt list --json` to resolve the worktree (no state cached in `hop.yaml` — worktrees are wt's domain). Bare `hop <name>` never invokes `wt`. Homebrew pulls `wt` in as a dependency; for non-brew installs, `brew install sahil87/tap/wt` or build from source.
+- **The `<name>/<wt>` suffix needs `wt` on `PATH`.** hop shells out to `wt list --json` to resolve the worktree (no state cached in `hop.yaml` — worktrees are wt's domain). Bare `hop <name>` never invokes `wt`. `wt` is not installed automatically — install it via [shll.ai](https://shll.ai) (`shll install wt`, or `curl -fsSL https://shll.ai/install | sh -s -- wt` if you don't have `shll`) or build from source.
 
 ## See also
 

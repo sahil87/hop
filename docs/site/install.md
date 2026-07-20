@@ -6,13 +6,15 @@ For the day-to-day grammar once you're set up, see the [workflows deep-dive](wor
 
 ## 1. Install the binary
 
-### Homebrew (macOS and Linux)
+### Via shll (macOS and Linux)
 
 ```sh
-brew install sahil87/tap/hop
+curl -fsSL https://shll.ai/install | sh -s -- hop
 ```
 
-The formula pulls in [`wt`](https://github.com/sahil87/wt) as a dependency. hop shells out to `wt list --json` to resolve the `<name>/<wt>` worktree suffix, so having `wt` on `PATH` is what makes worktree navigation (`h webapp/feat-x`) and `hop ls --trees` work. Bare `hop webapp` queries never touch `wt` — but you'll want it for the full experience, and brew installs it for you.
+Installs hop (plus the shll meta-CLI) via Homebrew under the hood, handling tap trust automatically. To install the entire shll toolkit instead, run `curl -fsSL https://shll.ai/install | sh` — see [shll.ai](https://shll.ai) for the complete install story.
+
+[`wt`](https://github.com/sahil87/wt) is a sibling tool and is **not** installed automatically. hop shells out to `wt list --json` to resolve the `<name>/<wt>` worktree suffix, so having `wt` on `PATH` is what makes worktree navigation (`h webapp/feat-x`) and `hop ls --trees` work — install it with `shll install wt` (or the full-toolkit bootstrap above). Bare `hop webapp` queries never touch `wt`.
 
 ### From source
 
@@ -24,7 +26,7 @@ just install
 
 `just install` builds the binary and copies it to `~/.local/bin/hop`. Make sure that directory is on your `$PATH` (`export PATH="$HOME/.local/bin:$PATH"` in your rc file if it isn't). The build follows the thin-justfile pattern — `just install` delegates to a script under `scripts/`, so there's no hidden build state to manage.
 
-A from-source install does **not** pull in `wt`. If you want worktree navigation, install it separately: `brew install sahil87/tap/wt`, or build it from source the same way.
+A from-source install does **not** pull in `wt`. If you want worktree navigation, install it separately via [shll.ai](https://shll.ai) (`shll install wt`, or `curl -fsSL https://shll.ai/install | sh -s -- wt` if you don't have `shll`), or build it from source the same way.
 
 ## 2. Wire the shell shim
 
