@@ -93,7 +93,7 @@ The published formula's structure:
 
 - `class Hop < Formula` opener.
 - `desc`, `homepage`, `version`, `license "MIT"` (informational — brew does not enforce).
-- `depends_on "sahil87/tap/wt"` — runtime dependency on the `wt` worktree CLI. `hop <name> open` shells out to `wt open` to delegate app detection, menu selection, and the "Open here" cd round-trip (see [`architecture/wrapper-boundaries`](/architecture/wrapper-boundaries.md#wt-env-contract-cmdhopopengo) for the env contract). Declared in the template so `brew install sahil87/tap/hop` pulls wt automatically. `Formula/wt.rb` already lives in `sahil87/homebrew-tap` alongside hop, fab-kit, rk, tu, and idea — no separate tap-side work was needed.
+- **No `depends_on` on any toolkit tool.** The formula declares no inter-tool Homebrew dependency, so `brew install sahil87/tap/hop` installs hop standalone and does not pull `wt`. hop's `wt`-delegating surfaces (`hop <name> open` shells out to `wt open`; `hop ls --trees` and the `<name>/<wt>` grammar shell out to `wt list --json`) treat `wt` as a **runtime-probed optional tool** — when it is absent, the `wtMissingHint` fail-fast carries the install command (`brew install sahil87/tap/wt`) so the user can act on it (see [`cli/subcommands`](/cli/subcommands.md) and [`architecture/wrapper-boundaries`](/architecture/wrapper-boundaries.md)). `Formula/wt.rb` lives independently in `sahil87/homebrew-tap` alongside hop, fab-kit, rk, tu, and idea.
 - `on_macos` block with nested `on_arm` / `on_intel` blocks declaring `url` and `sha256` for the two darwin tar.gz files.
 - `on_linux` block with the same shape for the two linux tar.gz files.
 - URLs follow `https://github.com/sahil87/hop/releases/download/v#{version}/hop-{os}-{arch}.tar.gz` — note the `v` prefix is re-added in the URL, so `version "VERSION_PLACEHOLDER"` stores the bare form.
@@ -126,6 +126,14 @@ These are policy decisions, not deferrals:
 - **Prerelease tags** (`v0.0.1-rc.1`) — `release.sh` accepts only `patch|minor|major`. Adding RC support is ~30 LOC across the script and the workflow if/when iterative pipeline testing becomes valuable.
 - **A `VERSION` file** — git tag is the single source of truth (single-binary project; run-kit's multi-binary `VERSION`-file rationale doesn't apply).
 - **Goreleaser** — the minor-aware base-tag logic for release notes is awkward in goreleaser (requires disabling its changelog and using post-hoc `gh release edit`); cleaner here via `softprops/action-gh-release`'s `previous_tag` parameter. Switching back is a one-evening rewrite if the project grows multiple binaries or wants signing/Docker/Snap.
+
+## Design Decisions
+
+1. **No inter-tool Homebrew dependency — each toolkit tool installs standalone.**
+   - *Decision*: The formula template declares no `depends_on` on another shll toolkit tool; `wt` is probed at runtime and its missing-tool hint carries the install command.
+   - *Why*: A toolkit-wide decision to remove inter-tool brew dependencies so each tool installs and versions independently — users who never touch worktree features don't pay the `wt` install cost, and the tools can be released on separate cadences. hop already routes every `wt` call site through `internal/proc` with `ErrNotFound` handling, so runtime probing is the natural fit; the only gap a bare hint left was discoverability, closed by putting the install command in `wtMissingHint`.
+   - *Rejected*: Keeping `depends_on "sahil87/tap/wt"` in the formula (couples the tools at the package-manager level, contradicting the toolkit standard, and forces the `wt` install on every hop user).
+   - *Introduced by*: remove-wt-brew-dependency
 
 ## Cross-references
 

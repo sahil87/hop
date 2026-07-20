@@ -4,8 +4,6 @@ class Hop < Formula
   version "VERSION_PLACEHOLDER"
   license "MIT"
 
-  depends_on "sahil87/tap/wt"
-
   on_macos do
     on_arm do
       url "https://github.com/sahil87/hop/releases/download/v#{version}/hop-darwin-arm64.tar.gz"

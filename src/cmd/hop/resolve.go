@@ -15,10 +15,10 @@ import (
 )
 
 // wtMissingHint is the exact stderr line printed when `wt` is needed but not
-// on PATH. Shared between cmd/hop/open.go, cmd/hop/ls.go, and the
+// installed. Shared between cmd/hop/open.go, cmd/hop/ls.go, and the
 // worktree-suffixed path resolution below so the wording stays consistent
 // across every wt-touching code path.
-const wtMissingHint = "hop: wt: not found on PATH."
+const wtMissingHint = "hop: wt is not installed. Install it: brew install sahil87/tap/wt"
 
 // fzfMissingHint is the exact stderr line printed when fzf is required but absent.
 const fzfMissingHint = "hop: fzf is not installed. Install it: brew install fzf (macOS) or apt install fzf (Debian)."

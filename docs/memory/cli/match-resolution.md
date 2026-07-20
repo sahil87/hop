@@ -40,7 +40,7 @@ Each surfaces as `*errExitCode{code: <n>, msg: <pre-formatted stderr line>}` so 
 | Empty LHS (`hop /feat-x where`) | 2 | `hop: empty repo name before '/'` |
 | Empty RHS (`hop webapp/ where`) | 2 | `hop: empty worktree name after '/'` |
 | `/`-suffixed query, repo not cloned | 1 | `hop: '<name>' is not cloned. Try: hop clone <name>` |
-| `wt` missing on PATH | 1 | `hop: wt: not found on PATH.` (the `wtMissingHint` constant, shared with `open.go` and `ls.go --trees`) |
+| `wt` missing on PATH | 1 | `hop: wt is not installed. Install it: brew install sahil87/tap/wt` (the `wtMissingHint` constant, shared with `open.go` and `ls.go --trees`) |
 | `wt list --json` non-zero exit or malformed JSON | 1 | `hop: wt list: <err>` (no silent fallback to the main path — unparseable wt output is a real failure) |
 | No matching worktree name | 1 | `hop: worktree '<wt>' not found in '<name>'. Try: wt list (in <path>) or hop ls --trees` |
 

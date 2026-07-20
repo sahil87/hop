@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-20T06:21:13Z"}
+{"args":"Remove the wt Homebrew dependency from hop and make the wt-missing hint actionable: delete depends_on sahil87/tap/wt from .github/formula-template.rb; change wtMissingHint to actionable brew-install message","cmd":"fab-new","event":"command","ts":"2026-07-20T06:21:13Z"}
+{"delta":"+4.9","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-07-20T06:21:58Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-20T06:25:19Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-20T06:25:28Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-20T06:28:07Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-20T06:29:59Z"}
+{"event":"review","result":"passed","ts":"2026-07-20T06:29:59Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-20T06:33:00Z"}
