@@ -26,7 +26,7 @@ just install
 
 `just install` builds the binary and copies it to `~/.local/bin/hop`. Make sure that directory is on your `$PATH` (`export PATH="$HOME/.local/bin:$PATH"` in your rc file if it isn't). The build follows the thin-justfile pattern — `just install` delegates to a script under `scripts/`, so there's no hidden build state to manage.
 
-A from-source install does **not** pull in `wt`. If you want worktree navigation, install it separately via [shll.ai](https://shll.ai) (`shll install wt`), or build it from source the same way.
+A from-source install does **not** pull in `wt`. If you want worktree navigation, install it separately via [shll.ai](https://shll.ai) (`shll install wt`, or `curl -fsSL https://shll.ai/install | sh -s -- wt` if you don't have `shll`), or build it from source the same way.
 
 ## 2. Wire the shell shim
 
