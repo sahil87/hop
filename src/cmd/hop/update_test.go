@@ -24,6 +24,20 @@ func TestUpdateCobraWiring(t *testing.T) {
 	}
 }
 
+// TestUpdateHelpAdvertisesSkipBrewUpdate pins the exact literal
+// `--skip-brew-update` in `hop update --help` output — a frozen textual
+// contract: shll discovers the flag via strings.Contains on the help text
+// (shll update standard), so the substring must never drift.
+func TestUpdateHelpAdvertisesSkipBrewUpdate(t *testing.T) {
+	stdout, _, err := runArgs(t, "update", "--help")
+	if err != nil {
+		t.Fatalf("hop update --help: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "--skip-brew-update") {
+		t.Fatalf("expected literal `--skip-brew-update` in update --help, got:\n%s", stdout.String())
+	}
+}
+
 func TestUpdateRejectsArgs(t *testing.T) {
 	_, _, err := runArgs(t, "update", "extra")
 	if err == nil {

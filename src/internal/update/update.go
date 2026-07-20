@@ -25,10 +25,22 @@ import (
 // otherwise shadow it on `brew info hop`.
 const brewFormula = "sahil87/tap/hop"
 
+// Timeout policy follows the shll update standard's brew-handling clause:
+// never SIGKILL a package-manager subprocess mid-transaction, never impose a
+// short hard timeout on `brew upgrade`. Hence there is NO upgrade timeout at
+// all (the foreground `brew upgrade` runs unbounded — the user watches brew's
+// own progress and can Ctrl-C), and the bounded calls below cancel gracefully
+// via proc.RunGraceful (SIGTERM + grace, never SIGKILL-first).
 const (
-	brewUpdateTimeout  = 30 * time.Second
-	brewInfoTimeout    = 30 * time.Second
-	brewUpgradeTimeout = 120 * time.Second
+	// brewUpdateTimeout bounds the captured `brew update --quiet` refresh. It
+	// has no visible progress, so an unbounded hang would look like a frozen
+	// `hop update` — but brew update mutates tap git state, so the bound is
+	// generous and enforced gracefully, not a short hard kill.
+	brewUpdateTimeout = 10 * time.Minute
+	// brewInfoTimeout bounds the read-only `brew info --json=v2` query. Not a
+	// mutation, so a short bound is fine; it rides the same graceful path for
+	// consistency (SIGTERM first costs nothing).
+	brewInfoTimeout = 30 * time.Second
 )
 
 // Test seams. These unexported package-level indirections exist so tests can
@@ -38,8 +50,12 @@ const (
 // Principle I's explicit-argument-slice convention — is identical. Tests swap
 // these out and restore them via t.Cleanup/defer.
 var (
+	// brewRun routes the captured brew calls (`brew update`, `brew info`)
+	// through proc.RunGraceful so a context cancellation delivers SIGTERM +
+	// grace instead of the exec.CommandContext default SIGKILL — brew must
+	// never be hard-killed mid-transaction (shll update standard).
 	brewRun = func(ctx context.Context, name string, args ...string) ([]byte, error) {
-		return proc.Run(ctx, name, args...)
+		return proc.RunGraceful(ctx, name, args...)
 	}
 	brewRunForeground = func(ctx context.Context, dir, name string, args ...string) (int, error) {
 		return proc.RunForeground(ctx, dir, name, args...)
@@ -111,9 +127,13 @@ func Run(currentVersion string, skipBrewUpdate bool, out, errOut io.Writer) erro
 
 	fmt.Fprintf(out, "Updating %s → v%s...\n", currentVersion, normalizeVersion(latest))
 
-	upCtx, upCancel := context.WithTimeout(context.Background(), brewUpgradeTimeout)
-	defer upCancel()
-	code, err := brewRunForeground(upCtx, "", "brew", "upgrade", brewFormula)
+	// No deadline on `brew upgrade` — deliberately. It runs foreground with
+	// inherited stdio, so the user watches brew's own progress and can Ctrl-C
+	// (user-initiated SIGINT, which brew handles). A wrapper-imposed deadline
+	// would SIGKILL brew mid-transaction (the exec.CommandContext default),
+	// which can corrupt the keg between `brew unlink` and `brew link` — the
+	// exact incident the shll update standard's brew-handling clause bans.
+	code, err := brewRunForeground(context.Background(), "", "brew", "upgrade", brewFormula)
 	if err != nil {
 		if errors.Is(err, proc.ErrNotFound) {
 			fmt.Fprintln(errOut, "hop update: brew not found on PATH.")

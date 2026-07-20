@@ -5,4 +5,4 @@
 | File | Description |
 |------|-------------|
 | [package-layout](package-layout.md) | `src/cmd/hop/` + `src/internal/<pkg>/`, cobra wiring, pre-cobra `--shim-plan` classifier (`shim_plan.go`), batch-verb action tokens (`batch_verb.go`), `help_dump.go` cobra-tree producer, conventions |
-| [wrapper-boundaries](wrapper-boundaries.md) | `internal/proc` security choke point (Run/RunCapture/RunInteractive/RunForeground), `internal/fzf` wrapper, `internal/yamled` comment-preserving YAML edits, `internal/scan` git invocation routing |
+| [wrapper-boundaries](wrapper-boundaries.md) | `internal/proc` security choke point (Run/RunGraceful/RunCapture/RunInteractive/RunForeground; RunGraceful = SIGTERM+grace cancel), `internal/fzf` wrapper, `internal/update` brew-handling timeout policy, `internal/yamled` comment-preserving YAML edits, `internal/scan` git invocation routing |

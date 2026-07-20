@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -46,22 +47,55 @@ func writeHopYamlHome(t *testing.T, body string) string {
 	return home
 }
 
+// versionTokenRE is the version-token shape shll's `--version` parse accepts
+// (shll version standard): optional leading v, dotted numerics, optional
+// pre-release/metadata tail. Matches both `v0.1.0` and `git describe` forms
+// like `v0.1.0-2-gabc123`.
+var versionTokenRE = regexp.MustCompile(`^v?\d+(\.\d+)*([.-][\w.+-]+)?$`)
+
+// TestIntegrationVersion pins the shll version standard's verify checklist
+// against the built binary: exit 0, version on STDOUT (stderr captured
+// separately — not CombinedOutput), and the first non-empty stdout line in
+// cobra's `hop version <token>` prefix shape. The token itself is regex-
+// checked only when it looks like a version (leading digit or v+digit), so
+// the test passes for both the unstamped test build (`hop version dev`) and
+// a tagged release build (`hop version vX.Y.Z`).
 func TestIntegrationVersion(t *testing.T) {
 	bin := buildBinary(t)
-	out, err := exec.Command(bin, "--version").CombinedOutput()
-	if err != nil {
-		t.Fatalf("hop --version: %v\noutput: %s", err, out)
-	}
-	if strings.TrimSpace(string(out)) == "" {
-		t.Fatalf("expected non-empty version output")
-	}
+	for _, flag := range []string{"--version", "-v"} {
+		cmd := exec.Command(bin, flag)
+		var stdout, stderr strings.Builder
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("hop %s: expected exit 0, got %v\nstdout: %s\nstderr: %s",
+				flag, err, stdout.String(), stderr.String())
+		}
 
-	out2, err := exec.Command(bin, "-v").CombinedOutput()
-	if err != nil {
-		t.Fatalf("hop -v: %v\noutput: %s", err, out2)
-	}
-	if strings.TrimSpace(string(out2)) == "" {
-		t.Fatalf("expected non-empty version output for -v")
+		// First non-empty stdout line carries the version.
+		var first string
+		for _, line := range strings.Split(stdout.String(), "\n") {
+			if s := strings.TrimSpace(line); s != "" {
+				first = s
+				break
+			}
+		}
+		if first == "" {
+			t.Fatalf("hop %s: expected version on stdout, got empty stdout (stderr: %q)",
+				flag, stderr.String())
+		}
+
+		fields := strings.Fields(first)
+		if len(fields) < 3 || fields[0] != "hop" || fields[1] != "version" {
+			t.Fatalf("hop %s: expected `hop version <token>` shape on line 1, got %q", flag, first)
+		}
+		tok := fields[2]
+		if c := tok[0]; c == 'v' || (c >= '0' && c <= '9') {
+			if !versionTokenRE.MatchString(tok) {
+				t.Fatalf("hop %s: version-looking token %q does not match shll's parse %s",
+					flag, tok, versionTokenRE)
+			}
+		}
 	}
 }
 
@@ -579,6 +613,48 @@ hop probe where`
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("bash -c '<shim>; hop probe where': %v\noutput: %s", err, out)
+	}
+	want := filepath.Join(dir, "probe")
+	if got := strings.TrimSpace(string(out)); got != want {
+		t.Fatalf("expected %q, got %q", want, got)
+	}
+}
+
+// TestIntegrationShellInitZshSourceable is the zsh twin of the bash test
+// above (shll shell-init standard: the emitted source must be eval-safe in
+// each supported shell — zsh is the primary documented one). It spawns a real
+// `zsh -f` (no rc files), evals the shim, and round-trips one dispatch
+// (`hop probe where`, the shim's PASSTHROUGH arm). The eval's stderr is
+// suppressed because a bare `zsh -f` has no compinit, so the appended
+// completion's `compdef` calls print command-not-found noise — zsh continues
+// past them, which is exactly the degradation an rc-less shell sees. Skipped
+// via t.Skip when zsh is not on PATH (CI runners may lack it).
+func TestIntegrationShellInitZshSourceable(t *testing.T) {
+	zshPath, err := exec.LookPath("zsh")
+	if err != nil {
+		t.Skipf("zsh not on PATH: %v", err)
+	}
+
+	bin := buildBinary(t)
+	dir := t.TempDir()
+	home := writeHopYamlHome(t, `repos:
+  default:
+    dir: `+dir+`
+    urls:
+      - git@github.com:sahil87/probe.git
+`)
+
+	binDir := filepath.Dir(bin)
+	script := `eval "$(hop shell-init zsh)" 2>/dev/null
+hop probe where`
+	cmd := exec.Command(zshPath, "-f", "-c", script)
+	cmd.Env = append(os.Environ(),
+		"HOME="+home,
+		"PATH="+binDir+":"+os.Getenv("PATH"),
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("zsh -f -c '<shim>; hop probe where': %v\noutput: %s", err, out)
 	}
 	want := filepath.Join(dir, "probe")
 	if got := strings.TrimSpace(string(out)); got != want {

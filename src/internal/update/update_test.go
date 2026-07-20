@@ -5,6 +5,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestNormalizeVersion(t *testing.T) {
@@ -132,6 +133,84 @@ func TestRunSkipBrewUpdate(t *testing.T) {
 			t.Errorf("with skipBrewUpdate=false, expected a 'brew upgrade' invocation, got: %v", recorded)
 		}
 	})
+}
+
+// TestRunBrewTimeoutPolicy pins the shll update standard's brew-handling
+// clause at the package's seams: the foreground `brew upgrade` context
+// carries NO deadline (a wrapper deadline would end in SIGKILL mid-
+// transaction — the standard's motivating incident), while the captured
+// `brew update` carries a generous graceful bound and the read-only
+// `brew info` stays bounded. Deadlines survive cancel(), so inspecting the
+// captured contexts after Run returns is safe. The SIGTERM+grace mechanics
+// themselves are pinned at the proc level (internal/proc RunGraceful tests) —
+// here we pin only what is observable at the seam: deadline presence/absence.
+func TestRunBrewTimeoutPolicy(t *testing.T) {
+	const brewInfoJSON = `{"formulae":[{"versions":{"stable":"0.0.2"}}]}`
+
+	// Capture the context passed to each brew invocation, keyed by the
+	// normalized "name args..." string the sibling test also uses.
+	ctxByInvocation := map[string]context.Context{}
+
+	origRun, origForeground, origInstalled := brewRun, brewRunForeground, brewInstalledCheck
+	t.Cleanup(func() {
+		brewRun = origRun
+		brewRunForeground = origForeground
+		brewInstalledCheck = origInstalled
+	})
+	brewInstalledCheck = func() bool { return true }
+	brewRun = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		ctxByInvocation[strings.TrimSpace(name+" "+strings.Join(args, " "))] = ctx
+		return []byte(brewInfoJSON), nil
+	}
+	brewRunForeground = func(ctx context.Context, _, name string, args ...string) (int, error) {
+		ctxByInvocation[strings.TrimSpace(name+" "+strings.Join(args, " "))] = ctx
+		return 0, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	if err := Run("v0.0.1", false, &stdout, &stderr); err != nil {
+		t.Fatalf("Run returned err: %v", err)
+	}
+
+	// MUST: no deadline on the foreground `brew upgrade`.
+	upgradeCtx, ok := ctxByInvocation["brew upgrade sahil87/tap/hop"]
+	if !ok {
+		t.Fatalf("no `brew upgrade` invocation recorded; got: %v", keysOf(ctxByInvocation))
+	}
+	if d, has := upgradeCtx.Deadline(); has {
+		t.Errorf("expected NO deadline on the `brew upgrade` context, got deadline %v", d)
+	}
+
+	// Generous graceful bound on the captured `brew update`.
+	updateCtx, ok := ctxByInvocation["brew update --quiet"]
+	if !ok {
+		t.Fatalf("no `brew update` invocation recorded; got: %v", keysOf(ctxByInvocation))
+	}
+	deadline, has := updateCtx.Deadline()
+	if !has {
+		t.Fatalf("expected a deadline on the `brew update` context (bounded, graceful)")
+	}
+	if remaining := time.Until(deadline); remaining < 5*time.Minute {
+		t.Errorf("expected a GENEROUS `brew update` bound (>=~10m), got ~%v remaining", remaining)
+	}
+
+	// Read-only `brew info` stays bounded.
+	infoCtx, ok := ctxByInvocation["brew info --json=v2 sahil87/tap/hop"]
+	if !ok {
+		t.Fatalf("no `brew info` invocation recorded; got: %v", keysOf(ctxByInvocation))
+	}
+	if _, has := infoCtx.Deadline(); !has {
+		t.Errorf("expected a deadline on the read-only `brew info` context")
+	}
+}
+
+// keysOf lists a ctx-map's invocation keys for failure messages.
+func keysOf(m map[string]context.Context) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 func TestIsBrewInstalledReturnsBool(t *testing.T) {

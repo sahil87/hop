@@ -11,6 +11,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"syscall"
+	"time"
 )
 
 // ErrNotFound is returned by Run/RunInteractive when the named binary is not on PATH.
@@ -23,6 +25,40 @@ var ErrNotFound = errors.New("binary not found on PATH")
 // it directly or via errors.Is).
 func Run(ctx context.Context, name string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		if errors.Is(err, exec.ErrNotFound) {
+			return nil, ErrNotFound
+		}
+		return stdout.Bytes(), err
+	}
+	return stdout.Bytes(), nil
+}
+
+// gracefulWaitDelay is the grace period RunGraceful allows between the
+// SIGTERM sent on context cancellation and Go's forced kill (cmd.WaitDelay).
+// Package-level var (not a const) so tests can shorten it to exercise the
+// escalation path in milliseconds — the same seam pattern as
+// internal/fzf.runInteractive and cmd/hop.listWorktrees.
+var gracefulWaitDelay = 20 * time.Second
+
+// RunGraceful is Run with graceful context cancellation: when ctx fires, the
+// subprocess receives SIGTERM (not exec.CommandContext's default SIGKILL) and
+// gets gracefulWaitDelay to unwind before Go escalates to a kill. Use it for
+// subprocesses that must never be hard-killed mid-transaction — package
+// managers above all (`brew update` mutates tap git state; a SIGKILL landing
+// mid-transaction corrupts it — see the shll update standard's brew-handling
+// clause). Unix-only signal semantics are fine: Windows is unsupported
+// (Constitution § Cross-Platform Behavior).
+//
+// stdout is captured and returned; stderr passes through to the parent. If
+// the binary is not on PATH, the returned error is ErrNotFound.
+func RunGraceful(ctx context.Context, name string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
+	cmd.WaitDelay = gracefulWaitDelay
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = os.Stderr
