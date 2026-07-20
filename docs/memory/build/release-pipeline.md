@@ -130,7 +130,7 @@ These are policy decisions, not deferrals:
 ## Design Decisions
 
 1. **No inter-tool Homebrew dependency — each toolkit tool installs standalone.**
-   - *Decision*: The formula template declares no `depends_on` on another shll toolkit tool; `wt` is probed at runtime and its missing-tool hint carries the install command.
+   - *Decision*: The formula template declares no `depends_on` on another tool in the shll toolkit; `wt` is probed at runtime and its missing-tool hint carries the install command.
    - *Why*: A toolkit-wide decision to remove inter-tool brew dependencies so each tool installs and versions independently — users who never touch worktree features don't pay the `wt` install cost, and the tools can be released on separate cadences. hop already routes every `wt` call site through `internal/proc` with `ErrNotFound` handling, so runtime probing is the natural fit; the only gap a bare hint left was discoverability, closed by putting the install command in `wtMissingHint`.
    - *Rejected*: Keeping `depends_on "sahil87/tap/wt"` in the formula (couples the tools at the package-manager level, contradicting the toolkit standard, and forces the `wt` install on every hop user).
    - *Introduced by*: remove-wt-brew-dependency
