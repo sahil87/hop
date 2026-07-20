@@ -85,7 +85,7 @@ just install
 
 Builds the binary and copies it to `~/.local/bin/hop`. Make sure that directory is on your `$PATH`.
 
-> **Fuller guide:** [Installing and setting up hop](docs/site/install.md) — Homebrew & from-source, shell integration in depth, and first-run bootstrap.
+> **Fuller guide:** [Installing and setting up hop](docs/site/install.md) — install via shll & from-source, shell integration in depth, and first-run bootstrap.
 
 ## Shell integration
 
@@ -247,7 +247,7 @@ A flat list (`default` above) uses convention: each URL lands at `<code_root>/<o
 - **Substring match is on the repo name only.** Not URL, not path, not group. `hop web` matches `webapp` but not the URL `git@github.com:org/webapp.git`. When two repos in different groups share a name, the picker shows `name [group]` to disambiguate.
 - **No `--force` on the `push` / `sync` batch verbs.** Intentional — for nuanced single-repo cases, reach for `hop <name> git push --force` and you'll get the full git output. The batch verbs stay safe by default.
 - **`hop <name> cursor` / `code` need a trailing `.`** — e.g. `hop dotfiles cursor .`. Not a hop quirk: both editors take `[paths...]` as positional args and, when invoked with none, restore the previously open folder instead of opening the cwd. The `.` is what tells them "open *this* directory." Tools that operate on cwd by default (`git status`, `terraform plan`, `ls`, `npm test`) don't need it.
-- **The `<name>/<wt>` suffix needs `wt` on `PATH`.** Hop shells out to `wt list --json` to resolve the worktree name (no state cached in `hop.yaml` — worktrees are wt's domain). Bare `hop <name>` queries never invoke wt. The Homebrew formula pulls wt in as a dependency; for non-brew installs, `brew install sahil87/tap/wt` or build from source.
+- **The `<name>/<wt>` suffix needs `wt` on `PATH`.** Hop shells out to `wt list --json` to resolve the worktree name (no state cached in `hop.yaml` — worktrees are wt's domain). Bare `hop <name>` queries never invoke wt. wt is not installed automatically — install it via [shll.ai](https://shll.ai) (`shll install wt`) or build from source.
 
 ## Reference
 

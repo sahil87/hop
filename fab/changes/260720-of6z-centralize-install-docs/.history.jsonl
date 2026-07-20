@@ -1,0 +1,9 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-20T07:31:29Z"}
+{"args":"Conform install documentation to shll toolkit install-composition standard Policy B: replace per-formula brew install instructions in README.md and docs/site/ with the shll.ai pointer","cmd":"fab-new","event":"command","ts":"2026-07-20T07:31:29Z"}
+{"delta":"+4.9","event":"confidence","score":4.9,"trigger":"calc-score","ts":"2026-07-20T07:38:21Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-20T07:39:43Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-20T07:40:01Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-20T07:45:55Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-20T07:48:46Z"}
+{"event":"review","result":"passed","ts":"2026-07-20T07:48:46Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-20T07:50:21Z"}
