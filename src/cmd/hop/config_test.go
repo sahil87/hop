@@ -170,8 +170,8 @@ func TestRecursiveAddMissingHopYamlPrintModeStillErrors(t *testing.T) {
 	if !strings.Contains(got, "no hop.yaml found at "+missing) {
 		t.Errorf("missing-config message not found; stderr=%q", got)
 	}
-	if !strings.Contains(got, "Run 'hop add <dir>'") {
-		t.Errorf("missing refined hop-add hint; stderr=%q", got)
+	if !strings.Contains(got, "Run 'hop add -r ~/code'") {
+		t.Errorf("missing bootstrap hop-add hint; stderr=%q", got)
 	}
 	// Print mode must NOT have created the file.
 	if _, statErr := os.Stat(missing); statErr == nil {
@@ -1026,10 +1026,10 @@ func TestConfigPrintNoConfigErrors(t *testing.T) {
 	if !strings.Contains(err.Error(), "no hop.yaml found") {
 		t.Errorf("expected 'no hop.yaml found' in error; got %q", err.Error())
 	}
-	// Read commands surface the refined two-path hint (R2 / Assumption 11):
-	// point at both `hop add <dir>` and `hop config init`.
-	if !strings.Contains(err.Error(), "Run 'hop add <dir>'") {
-		t.Errorf("expected refined hop-add hint; got %q", err.Error())
+	// Read commands surface the two-path hint: lead with the bootstrap form
+	// `hop add -r ~/code`, with `hop config init` as the trailing alternative.
+	if !strings.Contains(err.Error(), "Run 'hop add -r ~/code'") {
+		t.Errorf("expected bootstrap hop-add hint; got %q", err.Error())
 	}
 	if !strings.Contains(err.Error(), "'hop config init' for a starter") {
 		t.Errorf("expected config-init starter hint; got %q", err.Error())

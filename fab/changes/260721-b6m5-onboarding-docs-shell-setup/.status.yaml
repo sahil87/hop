@@ -1,0 +1,57 @@
+id: b6m5
+name: 260721-b6m5-onboarding-docs-shell-setup
+created: 2026-07-21T19:38:48Z
+created_by: sahil-noon
+change_type: docs
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 6
+    acceptance_count: 12
+    acceptance_completed: 12
+confidence:
+    certain: 8
+    confident: 7
+    tentative: 0
+    unresolved: 0
+    score: 4.5
+    fuzzy: true
+    dimensions:
+        signal: 79.0
+        reversibility: 85.5
+        competence: 83.7
+        disambiguation: 80.3
+stage_metrics:
+    intake: {started_at: "2026-07-21T19:38:48Z", driver: fab-new, iterations: 1, completed_at: "2026-07-21T19:44:23Z"}
+    apply: {started_at: "2026-07-21T19:44:23Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-21T19:52:52Z"}
+    review: {started_at: "2026-07-21T19:52:52Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-21T19:57:07Z"}
+    hydrate: {started_at: "2026-07-21T19:57:07Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-21T19:59:44Z"}
+    ship: {started_at: "2026-07-21T19:59:44Z", driver: fab-fff, iterations: 1, completed_at: "2026-07-21T20:01:30Z"}
+    review-pr: {started_at: "2026-07-21T20:01:30Z", driver: git-pr, iterations: 1, completed_at: "2026-07-21T20:07:13Z"}
+prs:
+    - https://github.com/sahil87/hop/pull/64
+change_type_source: explicit
+true_impact:
+    added: 373
+    deleted: 25
+    net: 348
+    excluding:
+        added: 19
+        deleted: 14
+        net: 5
+    tests:
+        added: 7
+        deleted: 7
+        net: 0
+    computed_at: "2026-07-21T20:01:30Z"
+    computed_at_stage: ship
+summary: Update quoted Resolve() no-config error message to the new 'hop add -r ~/code' bootstrap wording across config/search-order, config/add-register, config/init-bootstrap, and cli/subcommands
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-07-21T20:07:13Z

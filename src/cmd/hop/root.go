@@ -17,9 +17,12 @@ Grammar: hop <selection> <action>
                 alias/function (p). Omit the action to cd into the selection.
 
 Getting started:
-  1. Run ` + "`hop config init`" + ` to create a starter hop.yaml.
-  2. Edit it to list your repos (each entry: name + git URL + parent dir).
-  3. For interactive use, install the shim: eval "$(hop shell-init zsh)"
+  1. Wire the shell shim: run ` + "`shll shell-setup`" + ` (idempotently adds it to your
+     rc file). No shll (e.g. a from-source install)? Add the line yourself:
+     eval "$(hop shell-init zsh)"
+  2. Bootstrap the config: run ` + "`hop add -r ~/code`" + ` — walks the dir, reads each
+     repo's git remote, and builds hop.yaml. Auto-creates the config; there is
+     no separate init step.
 
 Cheat sheet:
   hop                       fzf picker, print selection

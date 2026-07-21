@@ -9,10 +9,12 @@ A small Go CLI that turns one config file (`hop.yaml`) into a personal directory
 ## Install
 
 ```sh
-curl -fsSL https://shll.ai/install | sh -s -- hop
+curl -fsSL https://shll.ai/install | sh -s -- hop   # install hop (+ shll) via Homebrew
+shll shell-setup                                    # wire the shell shim into your rc file
+hop add -r ~/code                                   # walk your code dir, build hop.yaml from git remotes
 ```
 
-Installs hop (plus the shll meta-CLI) via Homebrew, handling tap trust automatically. To install the entire shll toolkit instead:
+The first line installs hop (plus the shll meta-CLI) via Homebrew, handling tap trust automatically; the next two wire the shell shim into your rc file and build `hop.yaml` from your existing clones — that's the whole setup. To install the entire shll toolkit instead:
 
 ```sh
 curl -fsSL https://shll.ai/install | sh
@@ -98,7 +100,7 @@ eval "$(hop shell-init bash)"  # in ~/.bashrc
 
 This installs the `hop` shell function, the `h` alias, and tab completion. The shell function asks the binary how to dispatch each invocation (cd, run-in-parent-shell, or pass through to the binary) and acts on the answer — so navigation and running commands/aliases in a repo's directory work, none of which a bare binary can do (changing the parent shell's cwd is a Unix constraint, not a hop limitation). See [Gotchas](#gotchas) for the shim-vs-binary details.
 
-> 💡 Have other shll tools? [`shll shell-install`](https://github.com/sahil87/shll#shll-shell-install--wire-the-rc-file-recommended) handles all of their shell integrations and autocompletions at once.
+> 💡 Have other shll tools? [`shll shell-setup`](https://shll.ai) handles all of their shell integrations and autocompletions at once — one idempotent command instead of per-tool eval lines.
 
 ## First run
 

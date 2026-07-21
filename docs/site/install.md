@@ -4,6 +4,16 @@ A complete walkthrough from "nothing installed" to "`h web<TAB>` cds my shell in
 
 For the day-to-day grammar once you're set up, see the [workflows deep-dive](workflows.md).
 
+## TL;DR
+
+```sh
+curl -fsSL https://shll.ai/install | sh -s -- hop   # install hop (+ shll) via Homebrew
+shll shell-setup                                    # wire the shell shim into your rc file
+hop add -r ~/code                                   # walk your code dir, build hop.yaml from git remotes
+```
+
+That's the whole happy path. The rest of this page unpacks each step — and covers from-source installs, previewing the bootstrap, config syncing, and updates.
+
 ## 1. Install the binary
 
 ### Via shll (macOS and Linux)
@@ -32,14 +42,26 @@ A from-source install does **not** pull in `wt`. If you want worktree navigation
 
 This is the step that turns hop from a path-printer into a navigator. A binary cannot change its parent shell's current directory, nor run a command in it — that's a Unix constraint, not a hop limitation. The shim is a tiny shell function that bridges the gap.
 
-Install it once, in your shell's rc file:
+If you installed via shll (step 1's recommended path), wire it with one command:
+
+```sh
+shll shell-setup
+```
+
+It's idempotent — re-running is a no-op — and it wires every installed shll tool's shell integration and completions (hop, `wt`, and friends) into your rc file in one shot, so there's no per-tool `eval` line to manage. See [shll.ai](https://shll.ai) for details and variants.
+
+### Installed from source? Wire the shim manually
+
+A from-source install doesn't come with `shll`, so add hop's line to your shell's rc file yourself:
 
 ```sh
 eval "$(hop shell-init zsh)"   # add to ~/.zshrc
 eval "$(hop shell-init bash)"  # add to ~/.bashrc
 ```
 
-`hop shell-init <shell>` prints (and the `eval` installs) three things:
+### What the shim installs
+
+Either way, `hop shell-init <shell>` prints (and the `eval` — run directly or via `shll shell-setup`'s composed line — installs) three things:
 
 - **the `hop` shell function** — wraps the binary and acts on its dispatch decision (see below);
 - **the `h` alias** — a single-letter shorthand for the `hop` function, so `h web<TAB>` works;
@@ -56,10 +78,6 @@ For each invocation, the `hop` function asks the binary how to dispatch (an inte
 The shim never `eval`s the binary's output — it runs the words you already typed. Because the binary owns the classification, the shim hard-codes no subcommand names and can't drift out of sync with the binary as new subcommands are added.
 
 If you ever run hop without the shim installed, navigation prints a hint pointing you back to `eval "$(hop shell-init zsh)"`, with `cd "$(command hop <name> where)"` as the manual workaround.
-
-### One-shot wiring for multiple shll tools
-
-If you use several tools from the toolkit (hop, `wt`, and friends), you don't have to add an `eval` line per tool. [`shll shell-install`](https://github.com/sahil87/shll) wires every installed tool's shell integration and completions into your rc file in a single command.
 
 ## 3. First run: bootstrap `hop.yaml` from disk
 

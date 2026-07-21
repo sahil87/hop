@@ -33,9 +33,9 @@ The literal `filepath.Join` construction is deliberate: `os.UserConfigDir()` was
 - File exists → return the path, nil.
 - `os.IsNotExist` → not-found error:
   ```
-  hop: no hop.yaml found at <path>. Run 'hop add <dir>' to register a repo (creates the config), or 'hop config init' for a starter.
+  hop: no hop.yaml found at <path>. Run 'hop add -r ~/code' to build it from your existing clones, or 'hop config init' for a starter.
   ```
-  where `<path>` is the resolved fixed path (e.g., `/Users/you/.config/hop/hop.yaml`). The message points at **both** bootstrap paths (44hm): `hop add` auto-creates the config (so it's a true hint), and `hop config init` writes the annotated starter.
+  where `<path>` is the resolved fixed path (e.g., `/Users/you/.config/hop/hop.yaml`). The message points at **both** bootstrap paths: `hop add -r ~/code` recursively walks the code dir and auto-creates the config from existing clones (so it's a true hint), and `hop config init` writes the annotated starter.
 - Any other stat error → wrapped as `hop: stat <path>: <err>`.
 - `$HOME` unset → propagates `configPath()`'s `hop: $HOME is not set; cannot locate config`.
 - Sentinel `ErrNoConfig` is exported but the actual returned errors use `fmt.Errorf` with the exact messages above (callers don't currently `errors.Is` the sentinel).
