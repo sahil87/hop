@@ -1,0 +1,14 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-21T19:38:48Z"}
+{"args":"Align hop's onboarding surfaces on the two-command story (shll shell-setup + hop add -r ~/code): rewrite root.go Getting started block, fix the no-config error in resolve.go to lead with hop add -r, restructure install.md §2 around shll shell-setup with TL;DR quick starts in install.md and README.md, and fix the stale 'shll shell-install' name.","cmd":"fab-new","event":"command","ts":"2026-07-21T19:38:48Z"}
+{"delta":"+0.0","event":"confidence","score":4.5,"trigger":"calc-score","ts":"2026-07-21T19:41:25Z"}
+{"delta":"+0.0","event":"confidence","score":4.5,"trigger":"calc-score","ts":"2026-07-21T19:41:44Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-07-21T19:42:53Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-21T19:44:01Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-21T19:44:23Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-21T19:45:02Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-21T19:52:52Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-21T19:53:47Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-21T19:57:07Z"}
+{"event":"review","result":"passed","ts":"2026-07-21T19:57:07Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-21T19:57:42Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-21T19:59:44Z"}

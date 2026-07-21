@@ -80,7 +80,7 @@ How `add` resolves (or creates) `hop.yaml` before discovery depends on the **sin
 - **Print mode (`-p`)** never touches the file, so there is nothing to bootstrap — it calls `config.Resolve()` and **errors on absence**. The message is the resolver text (44hm), surfaced under the add prefix:
 
   ```
-  hop add: hop: no hop.yaml found at <path>. Run 'hop add <dir>' to register a repo (creates the config), or 'hop config init' for a starter.
+  hop add: hop: no hop.yaml found at <path>. Run 'hop add -r ~/code' to build it from your existing clones, or 'hop config init' for a starter.
   ```
 
   `<path>` is the fixed `~/.config/hop/hop.yaml`. Exit 1. No write, no auto-init.

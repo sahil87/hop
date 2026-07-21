@@ -93,7 +93,7 @@ A fresh `repos: {}` skeleton has **no groups** at all, so `clone`'s target group
 **Read-commands do NOT auto-init.** `hop`, `hop ls`, `hop <name> where`, and `hop config print` (and `hop add -p` *print*-mode dry-runs, any breadth) keep calling `config.Resolve()` and erroring on absence — they have nothing to write, so silently conjuring an empty config just to then report "no repos" is worse UX than a clear error. The not-found message names both bootstrap paths (44hm):
 
 ```
-hop: no hop.yaml found at <path>. Run 'hop add <dir>' to register a repo (creates the config), or 'hop config init' for a starter.
+hop: no hop.yaml found at <path>. Run 'hop add -r ~/code' to build it from your existing clones, or 'hop config init' for a starter.
 ```
 
 `hop rm` / `hop config rm` are **also not** in the auto-init set — `rm` has nothing to register on a fresh machine, so it has its own gate message (`Run 'hop config init' first, then re-run rm.`, `config_rm.go`). See [search-order § Resolve() semantics](/config/search-order.md#resolve-semantics).

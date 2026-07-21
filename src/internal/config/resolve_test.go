@@ -50,7 +50,7 @@ func TestResolveNotFound(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected error, got nil")
 	}
-	want := "hop: no hop.yaml found at " + filepath.Join(home, ".config", "hop", "hop.yaml") + ". Run 'hop add <dir>' to register a repo (creates the config), or 'hop config init' for a starter."
+	want := "hop: no hop.yaml found at " + filepath.Join(home, ".config", "hop", "hop.yaml") + ". Run 'hop add -r ~/code' to build it from your existing clones, or 'hop config init' for a starter."
 	if err.Error() != want {
 		t.Fatalf("error mismatch:\n  want: %s\n  got:  %s", want, err.Error())
 	}
