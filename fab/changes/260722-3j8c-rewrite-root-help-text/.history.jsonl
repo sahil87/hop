@@ -1,0 +1,12 @@
+{"action":"enter","driver":"fab-new","event":"stage-transition","stage":"intake","ts":"2026-07-22T09:54:44Z"}
+{"args":"rewrite root help text for readability: cut subcommand rows from cheat sheet, collapse grammar duplicates to 9 Examples rows, shorten descriptions to 80 cols, align Grammar terms, two-line Getting started, merge Notes to 4 bullets","cmd":"fab-new","event":"command","ts":"2026-07-22T09:54:44Z"}
+{"delta":"+4.8","event":"confidence","score":4.8,"trigger":"calc-score","ts":"2026-07-22T09:56:33Z"}
+{"cmd":"fab-switch","event":"command","ts":"2026-07-22T09:57:44Z"}
+{"cmd":"fab-fff","event":"command","ts":"2026-07-22T09:59:01Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"apply","ts":"2026-07-22T09:59:21Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-22T10:00:48Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"review","ts":"2026-07-22T10:07:31Z"}
+{"cmd":"fab-continue","event":"command","ts":"2026-07-22T10:08:28Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"hydrate","ts":"2026-07-22T10:13:00Z"}
+{"event":"review","result":"passed","ts":"2026-07-22T10:13:00Z"}
+{"action":"enter","driver":"fab-fff","event":"stage-transition","stage":"ship","ts":"2026-07-22T10:15:05Z"}
