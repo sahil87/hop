@@ -9,65 +9,37 @@ import (
 
 const rootLong = `hop — locate, open, and operate on repos from hop.yaml.
 
-Grammar: hop <selection> <action>
-  <selection> = a repo name (substring → fzf on ambiguity), a repo/worktree, a
-                group name, or --all (every cloned repo).
-  <action>    = a builtin verb (cd, open, where), a batch verb (pull, push,
-                sync), any PATH binary (git pull, code .), or a shell
-                alias/function (p). Omit the action to cd into the selection.
+Grammar: hop <selection> [action]
+  <selection>   a repo name (substring; fzf on ambiguity), a <name>/<wt>
+                worktree, a group name, or --all (every cloned repo)
+  [action]      builtin verb (cd, where, open), batch verb (pull, push,
+                sync), or any PATH tool / shell alias (git pull, code ., p).
+                Omitted: cd into the selection.
 
 Getting started:
-  1. Wire the shell shim: run ` + "`shll shell-setup`" + ` (idempotently adds it to your
-     rc file). No shll (e.g. a from-source install)? Add the line yourself:
-     eval "$(hop shell-init zsh)"
-  2. Bootstrap the config: run ` + "`hop add -r ~/code`" + ` — walks the dir, reads each
-     repo's git remote, and builds hop.yaml. Auto-creates the config; there is
-     no separate init step.
+  1. Wire the shell shim:  shll shell-setup
+  2. Build the config:     hop add -r ~/code
 
-Cheat sheet:
-  hop                       fzf picker, print selection
-  hop <name>                cd into the repo (shell function — needs ` + "`eval \"$(hop shell-init zsh)\"`" + `)
-  hop <name>/<wt>           same, but rooted at <wt> (a worktree of <name> per ` + "`wt list --json`" + `)
-  hop <name> cd             same — explicit verb form
-  hop <name> where          echo abs path of matching repo (or worktree, with /<wt> suffix)
-  hop <name> open           open the repo in an app (delegates to wt's menu; "Open here" cds the parent shell)
-  hop <name> git pull       run ` + "`git pull`" + ` with cwd = <name>'s repo dir (any PATH binary works)
-  hop <name> code .         open the editor in <name>'s repo dir (tool-form — runs in the parent shell)
-  hop <name> p              run the shell alias/function ` + "`p`" + ` in <name>'s repo dir
-  hop <name> pull           run ` + "`git pull`" + ` in the named repo (batch verb, selection-first)
-  hop <name> push           run ` + "`git push`" + ` in the named repo
-  hop <name> sync           auto-commit dirty tree, then ` + "`git pull --rebase`" + ` + ` + "`git push`" + `
-  hop <group> pull          run ` + "`git pull`" + ` in every cloned repo of <group>
-  hop --all pull            run ` + "`git pull`" + ` in every cloned repo
-  hop --all sync            run sync in every cloned repo
-  hop clone <name>          git clone the repo if it isn't already on disk
-  hop clone <url>           ad-hoc clone: clone the URL, register it in hop.yaml, print landed path
-  hop clone --all           clone every repo from hop.yaml that isn't already on disk
-  hop clone                 fzf picker, then clone if missing
-  hop ls                    list all repos
-  hop ls --trees            list all repos with worktree summaries (fans out ` + "`wt list --json`" + `)
-  hop add <dir>             register on-disk repos into hop.yaml (-r walks a tree, -p previews)
-  hop rm [<name>]           remove a repo from hop.yaml (fzf picker if no name)
-  hop shell-init <shell>    emit shell integration (zsh or bash). Use: eval "$(hop shell-init zsh)"
-  hop config init           bootstrap a starter hop.yaml
-  hop config where          print the resolved hop.yaml path
-  hop config print          print the resolved hop.yaml contents to stdout
-  hop update                self-update the hop binary via Homebrew
-  hop -h | --help           show this help
-  hop -v | --version        print version
+Examples:
+  hop                     fzf picker, print the selection
+  hop <name>              cd into the repo (needs the shell shim)
+  hop <name>/<wt>         same, rooted at worktree <wt>
+  hop <name> where        print the repo's absolute path
+  hop <name> open         open the repo in an app (wt's menu)
+  hop <name> code .       run any PATH tool in the repo dir
+  hop <name> sync         auto-commit, git pull --rebase, git push
+  hop <group> pull        batch verb across a group's cloned repos
+  hop --all sync          batch verb across every cloned repo
+
+Management subcommands (clone, ls, add, rm, config, ...) are listed
+below — see ` + "`hop <command> -h`" + ` for each.
 
 Notes:
-  - ` + "`hop <name>`" + ` and ` + "`hop <name> cd`" + ` require shell integration (a binary can't change
-    its parent shell's cwd). Without it, use:  cd "$(hop <name> where)"
-  - Tool-form (` + "`hop <name> <tool> ...`" + `) and ` + "`hop <name> open`" + `'s "Open here" choice run in
-    the parent shell via the shim. Scripts/CI that bypass the shim must use
-    ` + "`hop <name> where`" + ` for path resolution and run tools themselves.
-  - ` + "`pull`" + `, ` + "`push`" + `, ` + "`sync`" + ` accept a repo, a worktree, a group, or ` + "`--all`" + ` as the
-    selection. ` + "`sync`" + ` is ` + "`pull --rebase`" + ` + ` + "`push`" + ` (linear history, no auto-resolve on
-    conflict), auto-committing a dirty tree first.
-  - A plural selection (` + "`--all`" + ` or a group) accepts only ` + "`pull`/`push`/`sync`" + ` —
-    cd, open, where, and arbitrary tools across many repos are refused.
-  - On ambiguous or no-match queries, fzf opens prefilled with your query.
+  - cd and tool-form run in your parent shell via the shim (shll shell-setup,
+    or eval "$(hop shell-init zsh)"). Without it, use cd "$(hop <name> where)".
+  - A group or --all accepts only pull/push/sync; cd, open, where, and
+    arbitrary tools are single-repo.
+  - Ambiguous or no-match queries open fzf prefilled with your query.
   - Config lives at ~/.config/hop/hop.yaml.`
 
 // bareNameHint is the exact stderr line printed when the binary is invoked

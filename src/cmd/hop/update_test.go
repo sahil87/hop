@@ -50,7 +50,9 @@ func TestUpdateAppearsInHelp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("hop --help: %v", err)
 	}
-	if !strings.Contains(stdout.String(), "hop update") {
-		t.Fatalf("expected `hop update` line in --help output, got:\n%s", stdout.String())
+	// rootLong no longer carries per-subcommand cheat-sheet rows — `update`
+	// is advertised by cobra's Available Commands section via its Short.
+	if !strings.Contains(stdout.String(), "self-update the hop binary via Homebrew") {
+		t.Fatalf("expected `update` Short in --help Available Commands, got:\n%s", stdout.String())
 	}
 }

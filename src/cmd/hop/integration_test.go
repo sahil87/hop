@@ -540,14 +540,12 @@ func TestIntegrationTopLevelAddRm(t *testing.T) {
 		if err != nil {
 			t.Fatalf("hop --help: %v", err)
 		}
-		for _, want := range []string{"hop add <dir>", "hop rm [<name>]"} {
+		// rootLong no longer lists subcommand rows — it points at cobra's
+		// Available Commands section, which advertises add/rm via their Shorts.
+		for _, want := range []string{"register on-disk repos into hop.yaml", "remove a registered repo from hop.yaml"} {
 			if !strings.Contains(stdout, want) {
-				t.Errorf("expected %q in hop --help usage table; got:\n%s", want, stdout)
+				t.Errorf("expected %q in hop --help Available Commands; got:\n%s", want, stdout)
 			}
-		}
-		// The top-level subcommand listing should advertise add/rm Shorts.
-		if !strings.Contains(stdout, "register on-disk repos into hop.yaml") {
-			t.Errorf("expected top-level `add` Short in hop --help; got:\n%s", stdout)
 		}
 	})
 
