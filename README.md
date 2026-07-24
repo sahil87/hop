@@ -14,7 +14,14 @@ shll shell-setup                                    # wire the shell shim into y
 hop add -r ~/code                                   # walk your code dir, build hop.yaml from git remotes
 ```
 
-The first line installs hop (plus the shll meta-CLI) via Homebrew, handling tap trust automatically; the next two wire the shell shim into your rc file and build `hop.yaml` from your existing clones — that's the whole setup. To install the entire shll toolkit instead:
+The first line installs hop (plus the shll meta-CLI) via Homebrew, handling tap trust automatically; the next two wire the shell shim into your rc file and build `hop.yaml` from your existing clones — that's the whole setup. Now open a new terminal — or `exec zsh` (bash: `exec bash`): `shll shell-setup` edits your rc file, so the shim (the `hop` function, `h` alias, and tab completion) only exists in shells started after it. Then confirm it all works:
+
+```sh
+hop ls    # every repo from hop.yaml — the bootstrap worked
+h web     # substring-match and cd into a repo (any partial name) — the shim works
+```
+
+To install the entire shll toolkit instead:
 
 ```sh
 curl -fsSL https://shll.ai/install | sh
@@ -91,31 +98,11 @@ Builds the binary and copies it to `~/.local/bin/hop`. Make sure that directory 
 
 ## Shell integration
 
-The shell shim is what makes `hop <name>` actually `cd` your shell. Install it once:
-
-```sh
-eval "$(hop shell-init zsh)"   # in ~/.zshrc
-eval "$(hop shell-init bash)"  # in ~/.bashrc
-```
-
-This installs the `hop` shell function, the `h` alias, and tab completion. The shell function asks the binary how to dispatch each invocation (cd, run-in-parent-shell, or pass through to the binary) and acts on the answer — so navigation and running commands/aliases in a repo's directory work, none of which a bare binary can do (changing the parent shell's cwd is a Unix constraint, not a hop limitation). See [Gotchas](#gotchas) for the shim-vs-binary details.
-
-> 💡 Have other shll tools? [`shll shell-setup`](https://shll.ai) handles all of their shell integrations and autocompletions at once — one idempotent command instead of per-tool eval lines.
+The shell shim — the `hop` shell function, the `h` alias, and tab completion — is what makes `hop <name>` actually `cd` your shell. `shll shell-setup` wires it once for every shll tool; installed from source, add `eval "$(hop shell-init zsh)"` (or `bash`) to your rc file yourself. The binary tells the shim how to dispatch each invocation, so navigation and running commands/aliases in a repo's directory just work — see [Gotchas](#gotchas) for the shim-vs-binary details, and the [install guide](docs/site/install.md) for the full dispatch model.
 
 ## First run
 
-If you already have repos cloned somewhere, point hop at them — this creates `hop.yaml` for you and registers everything it finds:
-
-```sh
-hop add -r ~/code                   # walk ~/code and populate hop.yaml (comments preserved)
-hop add -r -p ~/code                # preview only: print what it would write, change nothing
-```
-
-`hop add -r` writes by default and auto-creates the config on a fresh machine — there's no separate setup step. The file lives at `~/.config/hop/hop.yaml` (run `hop config where` to confirm). To sync it across machines, keep it in your dotfiles and symlink that path to it.
-
-The walk (default depth 3, `--depth N` to override) inspects each git repo's `origin` remote and auto-derives groups: repos whose on-disk path matches the `<code_root>/<org>/<name>` convention land in `default`; repos in non-convention layouts get a group named after their parent directory. Add `-g <name>` to force everything into a named group instead (auto-created if it doesn't exist). Worktrees, submodules, bare repos, and repos with no remote are skipped.
-
-Prefer to start from a hand-edited starter instead? `hop config init` writes an annotated `hop.yaml` you can fill in by hand.
+Point hop at your existing clones and it builds `hop.yaml` for you: `hop add -r ~/code` walks the directory, reads each repo's git remote, and auto-derives groups (add `-p` to preview without writing). The config lives at `~/.config/hop/hop.yaml`; walk depth, group rules, the annotated starter (`hop config init`), and the dotfiles syncing pattern are covered in the [install guide](docs/site/install.md).
 
 ## Quick tour
 
