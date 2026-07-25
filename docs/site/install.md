@@ -12,6 +12,8 @@ shll shell-setup                                    # wire the shell shim into y
 hop add -r ~/code                                   # walk your code dir, build hop.yaml from git remotes
 ```
 
+Then open a new terminal — or `exec zsh` (bash: `exec bash`) — so the freshly written rc file loads; the `hop` function and `h` alias only exist in shells started after `shll shell-setup`.
+
 That's the whole happy path. The rest of this page unpacks each step — and covers from-source installs, previewing the bootstrap, config syncing, and updates.
 
 ## 1. Install the binary
@@ -49,6 +51,8 @@ shll shell-setup
 ```
 
 It's idempotent — re-running is a no-op — and it wires every installed shll tool's shell integration and completions (hop, `wt`, and friends) into your rc file in one shot, so there's no per-tool `eval` line to manage. See [shll.ai](https://shll.ai) for details and variants.
+
+Either way you wire it — via `shll shell-setup` or the manual line below — it's an rc-file edit, so it takes effect in new shells only: open a new terminal or `exec zsh` before trying `h`.
 
 ### Installed from source? Wire the shim manually
 
@@ -119,6 +123,6 @@ When hop was installed via Homebrew, `hop update` self-upgrades through brew. Wh
 
 ## Next steps
 
-You're set up. Head to the [workflows deep-dive](workflows.md) for the one grammar (`hop <selection> <action>`), navigation, running commands inside any repo, and batch git ops across groups.
+You're set up — in a fresh shell, `hop ls` lists everything the bootstrap registered, and `h <partial>` (say, `h web`) cds you straight into a repo. Head to the [workflows deep-dive](workflows.md) for the one grammar (`hop <selection> <action>`), navigation, running commands inside any repo, and batch git ops across groups.
 
 For the canonical command contract and config schema, see the source-of-truth specs: [`cli-surface.md`](https://github.com/sahil87/hop/blob/main/docs/specs/cli-surface.md) and [`config-resolution.md`](https://github.com/sahil87/hop/blob/main/docs/specs/config-resolution.md).
