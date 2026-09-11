@@ -48,7 +48,7 @@ Whole-repo grep for `run-kit|runkit` (case-insensitive) across live surfaces, cl
 |---------|------|----------------|--------|
 | `README.md` | 0 | — | none |
 | `docs/site/{install,skill,workflows}.md` | 0 | — | none |
-| `cmd/`, `internal/`, `scripts/`, `.github/`, `justfile` | 0 | — | none |
+| `src/` (Go source: `src/cmd/`, `src/internal/`), `scripts/`, `.github/`, `justfile` | 0 | — | none |
 | `docs/specs/build-and-release.md` (lines 5, 95, 112, 118, 122, 126, 159, 222, 229) | 9 | References to the **`sahil87/run-kit` repository** and its release workflow files (`~/code/sahil87/run-kit/.github/workflows/release.yml`, `formula-template.rb`, the tap's `Formula/rk.rb`) — repo links/paths, not prose about the dashboard product | **leave** — repo links stay until R2 (user instruction; plan R2(d)) |
 | `docs/memory/build/release-pipeline.md` (7, 23, 41, 68, 108, 127), `docs/memory/build/ci-pipeline.md` (9) | 7 | Same repo/workflow references, in memory narrative | **leave** — repo links until R2, and memory prose is the historical tier (D11); the run-kit repo's own X3 row owns memory identity sweeps |
 | `fab/changes/**`, `fab/backlog.md` | many | Historical tier | **leave** (D11) |
