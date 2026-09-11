@@ -1,0 +1,57 @@
+id: mhhy
+name: 260911-mhhy-hexokit-banner-sweep
+created: 2026-09-11T17:49:57Z
+created_by: sahil-noon
+change_type: docs
+issues: []
+progress:
+    intake: done
+    apply: done
+    review: done
+    hydrate: done
+    ship: done
+    review-pr: done
+plan:
+    generated: true
+    task_count: 3
+    acceptance_count: 8
+    acceptance_completed: 8
+confidence:
+    certain: 8
+    confident: 1
+    tentative: 0
+    unresolved: 0
+    score: 5.0
+    fuzzy: true
+    dimensions:
+        signal: 83.3
+        reversibility: 95.0
+        competence: 88.9
+        disambiguation: 87.2
+stage_metrics:
+    intake: {started_at: "2026-09-11T17:49:57Z", driver: fab-new, iterations: 1, completed_at: "2026-09-11T17:53:27Z"}
+    apply: {started_at: "2026-09-11T17:53:27Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T17:54:49Z"}
+    review: {started_at: "2026-09-11T17:54:49Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T17:57:28Z"}
+    hydrate: {started_at: "2026-09-11T17:57:28Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T17:57:28Z"}
+    ship: {started_at: "2026-09-11T17:57:28Z", driver: fab-fff, iterations: 1, completed_at: "2026-09-11T17:58:38Z"}
+    review-pr: {started_at: "2026-09-11T17:58:38Z", driver: git-pr, iterations: 1, completed_at: "2026-09-11T18:03:29Z"}
+prs:
+    - https://github.com/sahil87/hop/pull/70
+change_type_source: explicit
+true_impact:
+    added: 253
+    deleted: 1
+    net: 252
+    excluding:
+        added: 1
+        deleted: 1
+        net: 0
+    tests:
+        added: 0
+        deleted: 0
+        net: 0
+    computed_at: "2026-09-11T17:58:38Z"
+    computed_at_stage: ship
+summary: README toolkit banner flipped to the HexoKit blockquote per the revised readme-extraction standard; no run-kit product prose found on hop's live surfaces
+# true_impact: lazily created on first stage-finish that computes it (no placeholder here).
+last_updated: 2026-09-11T18:03:29Z
